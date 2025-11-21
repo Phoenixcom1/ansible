@@ -1,0 +1,14 @@
+#We have to set both, static_ip and ansible_host as ansible_host will be overriden first time execution
+
+all:
+  hosts:
+    docker-vm:
+      static_ip: 192.168.1.100
+      static_gateway: "{{ gateway_lab}}"
+      ansible_host: "{{ static_ip }}"
+      local_user_name: "docker_vm"
+      xrdp: true
+  vars:
+    ansible_user: ansible
+    gateway_lab: 192.168.1.1
+    ansible_private_key_file: ~/.ssh/ansible_staging_key

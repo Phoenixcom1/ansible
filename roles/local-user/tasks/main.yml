@@ -1,0 +1,11 @@
+- name: Install mkpasswd
+  ansible.builtin.package:
+    name: whois
+  become: true
+
+- name: Check if local user '{{ local_username}}' already exists
+  ansible.builtin.command: "getent passwd {{ local_username }}"
+  register: user_check_result
+  failed_when: user_check_result.rc not in [0, 2]
+  changed_when: false # This task never changes the system state, so mark it as 'ok'
+

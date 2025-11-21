@@ -1,0 +1,6 @@
+---
+- name: Secure user_data file from unwanted reads
+  ansible.builtin.file:
+    path: .user/user_data.yml
+    mode: "0600"
+    owner: "{{ ansible_env.USER }}"

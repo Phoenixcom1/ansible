@@ -1,0 +1,13 @@
+- hosts: all
+  become: true
+  environment:
+    https_proxy:
+    https_proxy:
+  vars_prompt:
+    - name: cryptsetup_user_passphrase
+      prompt: "Enter the passphrase for the encrypted partitions"
+      private: true
+      confirm: true
+
+  roles:
+    - local_user
