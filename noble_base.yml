@@ -1,7 +1,7 @@
 - hosts: all
   become: true
   environment:
-    https_proxy:
+    http_proxy:
     https_proxy:
   vars_prompt:
     - name: cryptsetup_user_passphrase
@@ -10,4 +10,4 @@
       confirm: true
 
   roles:
-    - local_user
+    - local-user

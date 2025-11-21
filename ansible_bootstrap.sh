@@ -1,7 +1,9 @@
 #!/bin/bash
 # This script bootstraps an Ansible control node on a fresh ubuntu system based on an 'ansbible' user, having sudo and ssh access.
 
-SSH_PUBLIC_KEYS="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBpiHVEMPB9KT0nzBBV8aMHeIcq0siEwdwZxstnfiNLd enno-fassbender@web.de"
+SSH_PUBLIC_KEYS=(
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBpiHVEMPB9KT0nzBBV8aMHeIcq0siEwdwZxstnfiNLd enno-fassbender@web.de"
+)
 
 APT_CMD="apt-get"
 ANSIBLE_HOME="/home/ansible"

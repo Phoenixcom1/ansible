@@ -3,7 +3,7 @@
 all:
   hosts:
     docker-vm:
-      static_ip: 192.168.1.100
+      static_ip: 192.168.1.118
       static_gateway: "{{ gateway_lab}}"
       ansible_host: "{{ static_ip }}"
       local_user_name: "docker_vm"
