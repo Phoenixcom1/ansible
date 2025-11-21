@@ -6,7 +6,7 @@ all:
       static_ip: 192.168.1.118
       static_gateway: "{{ gateway_lab}}"
       ansible_host: "{{ static_ip }}"
-      local_user_name: "docker_vm"
+      local_username: "docker_vm"
       xrdp: true
   vars:
     ansible_user: ansible
