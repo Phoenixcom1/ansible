@@ -10,4 +10,5 @@
       confirm: true
 
   roles:
+    - common
     - local-user

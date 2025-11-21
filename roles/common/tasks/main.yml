@@ -1,0 +1,39 @@
+---
+#Linux common tasks
+
+- name: Update all packages to their latest version
+  become: true
+  ansible.builtin.package:
+    name: "*"
+    state: latest
+
+- name: Install Linux Standard Base
+  ansible.builtin.apt:
+    name: lsb-core
+  become: true
+  when:
+    - ansible_distribution | string == 'Ubuntu'
+    - ansible_distribution_release | string == 'noble'
+
+- name: Install Curl
+  ansible.builtin.package:
+    name: curl
+  become: true
+
+# spin-off project of FreeRDP
+- name: Install winpr
+  ansible.builtin.package:
+    name: winpr-utils
+  become: true
+
+- name: Add user to kvm groupe
+  become: true
+  ansible.builtin.user:
+    name: "{{ local_username }}"
+    groups: kvm
+    append: yes
+
+- name: Set timezone
+  become: true
+  ansible.builtin.command:
+    cmd: "timedatectl set-timezone {{ timezone }}"

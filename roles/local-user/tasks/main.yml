@@ -9,3 +9,45 @@
   failed_when: user_check_result.rc not in [0, 2]
   changed_when: false # This task never changes the system state, so mark it as 'ok'
 
+- name: Generate password hash
+  when: user_check_result.rc == 2
+  ansible.builtin.shell:
+    cmd: 'echo "1234" | mkpasswd --method=SHA-512 --stdin'
+  register: generated_hash
+
+- name: Ensure local user '{{ local_username}}' exists, has password, and is in sudo
+  when: user_check_result.rc == 2
+  ansible.builtin.user:
+    name: "{{ local_username }}"
+    password: "{{ generated_hash.stdout }}"
+    state: present
+    groups: sudo
+    append: yes
+    shell: /bin/bash
+    update_password: "on_create"
+    create_home: true
+  register: user_created
+
+- name: Ensure home directory for '{{ local_username}}' has correct ownership and permissions
+  when: user_created.changed
+  ansible.builtin.file:
+    path: "/home/{{ local_username }}"
+    state: directory
+    owner: "{{ local_username }}"
+    group: "{{ local_username }}"
+    mode: "0755"
+
+- name: Copy skeleton files from /etc/skel to '{{ local_username}}' home directory
+  when: user_created.changed
+  ansible.builtin.copy:
+    src: "/etc/skel/"
+    dest: "/home/{{ local_username }}/"
+    owner: "{{ local_username }}"
+    group: "{{ local_username }}"
+    mode: preserve
+    remote_src: yes
+
+- name: Force password change for '{{ local_username}}' on first login
+  when: user_created.changed
+  ansible.builtin.command:
+    cmd: "chage -d 0 {{ local_username }}"
