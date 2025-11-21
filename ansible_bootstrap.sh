@@ -129,7 +129,7 @@ echo "---Adding SSH public keys to authorized_keys---"
 
 # Clear existing authorized_keys file or create if not exists
 echo "Creating/clearing $AUTHORIZED_KEYS_FILE..."
-> "$AUTHORIZED_KEYS_FILE"
+echo "" > "$AUTHORIZED_KEYS_FILE"
 if [ $? -ne 0 ]; then
   echo "Failed to create/clear authorized_keys file. Exiting."
   exit 1
