@@ -4,7 +4,7 @@ Ansible scripts for setting up ubuntu systems.
 
 ## Target setup
 
-> [!IMPORTANT
+> [!IMPORTANT]
 > When setting up a new system, this is the only section you need to do.
 
 After successful installation of the ubuntu system, you need to follow these steps to bootstrap the machine for ansible:
