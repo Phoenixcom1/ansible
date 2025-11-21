@@ -137,7 +137,7 @@ fi
 echo "Cleared or created $AUTHORIZED_KEYS_FILE."
 
 echo "Adding ${#SSH_PUBLIC_KEYS[@]} SSH public keys to $AUTHORIZED_KEYS_FILE..."
-for KEY in $SSH_PUBLIC_KEYS; do
+for KEY in "${SSH_PUBLIC_KEYS[@]}"; do
     #Append each key to authorized_keys
     echo "$KEY" | tee -a "$AUTHORIZED_KEYS_FILE" > /dev/null
     if [ $? -ne 0 ]; then
