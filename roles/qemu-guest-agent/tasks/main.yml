@@ -1,0 +1,7 @@
+---
+- name: Install qemu-guest-agent package
+  apt:
+    name: "{{ qemu_guest_agent_package }}"
+    state: present
+    update_cache: yes
+  become: true
