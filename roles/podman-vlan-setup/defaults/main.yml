@@ -1,0 +1,3 @@
+---
+# Podman network setup (bridge network for container communication)
+podman_network: "podman_bridge"

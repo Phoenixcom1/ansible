@@ -1,0 +1,138 @@
+---
+# Configure VLAN 100 + Podman network
+
+# --------------------------------------------------------------------
+# Detect default interface dynamically (VM-safe, no shell pipes)
+# --------------------------------------------------------------------
+- name: Gather facts
+  setup:
+
+# - name: Set parent interface fact
+#   set_fact:
+#     parent_iface: "{{ ansible_default_ipv4.interface }}"
+
+# - name: Set VLAN interface name fact
+#   set_fact:
+#     vlan_iface: "{{ parent_iface }}.{{ vlan_id }}"
+
+# Enable lingering for podman user to support systemd user session
+- name: Enable lingering for podman user
+  command: loginctl enable-linger {{ podman_user | default('podman') }}
+  become: true
+  ignore_errors: true
+  changed_when: false
+
+#######################################################################
+# SYSTEMD-NETWORKD HEALTH CHECK
+#######################################################################
+
+- name: Ensure systemd-networkd service exists
+  command: systemctl status systemd-networkd
+  register: networkd_status
+  failed_when: networkd_status.rc not in [0, 3] # 3 = service not running
+  changed_when: false
+
+- name: Ensure systemd-networkd is enabled
+  systemd:
+    name: systemd-networkd
+    enabled: yes
+
+- name: Ensure systemd-networkd is running
+  systemd:
+    name: systemd-networkd
+    state: started
+
+- name: Install VLAN package
+  apt:
+    name: vlan
+    state: present
+    update_cache: yes
+  become: true
+
+- name: Check if 8021q kernel module is loaded
+  command: cat /proc/modules
+  register: proc_modules
+  changed_when: false
+
+- name: Load 8021q kernel module if not already loaded
+  modprobe:
+    name: 8021q
+    state: present
+  become: true
+  when: "'8021q ' not in proc_modules.stdout"
+
+- name: Ensure 8021q module is persisted across reboots
+  lineinfile:
+    path: /etc/modules-load.d/8021q.conf
+    line: "8021q"
+    create: yes
+    owner: root
+    group: root
+    mode: 0644
+  become: true
+
+# - name: Create netplan VLAN config
+#   template:
+#     src: vlan-netplan.yaml.j2
+#     dest: "/etc/netplan/50-vlan-{{ vlan_id }}.yaml"
+#     mode: "0600"
+#   notify:
+#     - apply netplan
+#   become: true
+
+# - meta: flush_handlers # triggers handlers immediately
+
+# #######################################################################
+# # NETPLAN BRIDGE FOR VLAN
+# #######################################################################
+
+# - name: Create bridge netplan config
+#   template:
+#     src: vlan-bridge-netplan.yaml.j2
+#     dest: "/etc/netplan/51-bridge-{{ vlan_id }}.yaml"
+#     mode: "0600"
+#   notify:
+#     - apply netplan
+#   become: true
+
+# - meta: flush_handlers
+
+# # --------------------------------------------------------------------
+# # Podman macvlan network setup
+# # --------------------------------------------------------------------
+
+# - name: Wait for VLAN interface to appear
+#   command: ip link show {{ vlan_iface }}
+#   register: vlan_check
+#   retries: 5
+#   delay: 2
+#   until: vlan_check.rc == 0
+
+#######################################################################
+# Create Podman bridge network for containers
+#######################################################################
+
+- name: Check if Podman network exists (as podman user)
+  command: podman network inspect {{ podman_network }}
+  become: true
+  become_user: "{{ podman_user | default('podman') }}"
+  register: podman_network_exists
+  ignore_errors: true
+  changed_when: false
+
+- name: Create Podman bridge network if missing (as podman user)
+  command: >
+    podman network create
+    --driver bridge
+    {{ podman_network }}
+  become: true
+  become_user: "{{ podman_user | default('podman') }}"
+  when: podman_network_exists.rc != 0
+  register: network_creation
+  failed_when: network_creation.rc != 0 and "already exists" not in network_creation.stderr
+
+- name: Verify Podman network exists (as podman user)
+  command: podman network inspect {{ podman_network }}
+  become: true
+  become_user: "{{ podman_user | default('podman') }}"
+  changed_when: false

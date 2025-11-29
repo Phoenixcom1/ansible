@@ -1,0 +1,45 @@
+---
+- name: Ensure nginx is installed
+  apt:
+    name: nginx
+    state: present
+    update_cache: yes
+  become: true
+
+- name: Ensure SSL certificate directory exists
+  file:
+    path: /etc/ssl/wildcard
+    state: directory
+    mode: "0755"
+    owner: ansible
+    group: ansible
+  become: true
+
+- name: Ensure config directory exists
+  file:
+    path: /etc/nginx/conf.d
+    state: directory
+    mode: 0755
+  become: true
+
+- name: Deploy global SSL configuration
+  template:
+    src: 00-default-ssl.conf.j2
+    dest: /etc/nginx/conf.d/00-default-ssl.conf
+    mode: "0644"
+  become: true
+
+- name: Deploy homepage reverse proxy config
+  template:
+    src: homepage.conf.j2
+    dest: /etc/nginx/conf.d/homepage.conf
+    mode: "0644"
+  notify: reload nginx
+  become: true
+
+- name: Ensure nginx is enabled and running
+  systemd:
+    name: nginx
+    enabled: yes
+    state: started
+  become: true

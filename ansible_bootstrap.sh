@@ -3,6 +3,7 @@
 
 SSH_PUBLIC_KEYS=(
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBpiHVEMPB9KT0nzBBV8aMHeIcq0siEwdwZxstnfiNLd enno-fassbender@web.de"
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOmUS65IKukjmAtEFAXhRnVD/JceznOHQCTPpUZJWkFE root@Kerberos.localdomain"
 )
 
 APT_CMD="apt-get"

@@ -64,4 +64,4 @@
     group: "{{ podman_user }}"
     mode: "0755"
   become: true
-  when: not homepage_config_stat.stat.exists
+  when: not podman_service_stat.stat.exists

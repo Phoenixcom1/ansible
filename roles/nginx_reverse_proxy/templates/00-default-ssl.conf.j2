@@ -1,0 +1,13 @@
+# Global SSL defaults for all HTTPS server blocks
+
+ssl_certificate     {{ ssl_cert }};
+ssl_certificate_key {{ ssl_key }};
+
+ssl_session_cache shared:SSL:10m;
+ssl_session_timeout 1d;
+
+# WebSocket upgrade support
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    '' close;
+}

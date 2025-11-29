@@ -1,0 +1,12 @@
+network:
+  version: 2
+  renderer: networkd
+
+  vlans:
+    {{ vlan_iface }}:
+      id: {{ vlan_id }}
+      link: {{ parent_iface }}
+      dhcp4: false
+      addresses:
+        - {{ host_vlan_ip }}
+      optional: true

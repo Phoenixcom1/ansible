@@ -9,7 +9,7 @@
 
 - name: Install Linux Standard Base
   ansible.builtin.apt:
-    name: lsb-core
+    name: lsb-release
   become: true
   when:
     - ansible_distribution | string == 'Ubuntu'

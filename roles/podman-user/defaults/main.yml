@@ -11,3 +11,6 @@ podman_home: /home/podman
 podman_ssh_key_path: ~/.ssh/id_ed25519_podman # Set via playbook/inventory, e.g., ~/.ssh/id_ed25519
 # Name for the SSH private key file on the target user's .ssh directory
 podman_ssh_key_name: id_ed25519_podman
+
+# SSH public key for direct login to podman user (path on Ansible controller)
+ansible_ssh_public_key_file: ~/.ssh/id_ed25519_priv.pub

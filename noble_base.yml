@@ -10,5 +10,12 @@
       confirm: true
 
   roles:
-    - common
-    - local-user
+    #- common
+    #- local-user
+    #- qemu-guest-agent
+    #- podman
+    - podman-user
+    - podman-vlan-setup
+    - nginx_reverse_proxy
+    - podman-compose-deploy
+    - deploy_homepage_container

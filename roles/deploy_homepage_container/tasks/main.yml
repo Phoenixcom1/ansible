@@ -1,0 +1,46 @@
+---
+# Homepage service deployment
+
+# Create config directories
+- name: Check if homepage config directory exists
+  stat:
+    path: "{{ homepage_config_dir }}"
+  register: homepage_config_stat
+
+- name: Create homepage config directory if missing
+  file:
+    path: "{{ homepage_config_dir }}"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+  when: not homepage_config_stat.stat.exists
+
+# Create .env file if missing
+- name: Check if .env file exists
+  stat:
+    path: "{{ homepage_env_file }}"
+  register: homepage_env_stat
+
+- name: Create empty .env file if missing
+  file:
+    path: "{{ homepage_env_file }}"
+    state: touch
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  when: not homepage_env_stat.stat.exists
+
+# Deploy container
+- name: Run homepage docker-compose
+  command: >
+    /usr/bin/podman-compose
+    -f {{ homepage_repo_path }}/{{ homepage_compose_file }}
+    --project-name {{ homepage_project_name }}
+    up -d
+  become: true
+  become_user: "{{ podman_user }}"
+  register: homepage_compose_result
+  changed_when: "'created' in homepage_compose_result.stdout or 'started' in homepage_compose_result.stdout"

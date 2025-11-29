@@ -1,0 +1,14 @@
+---
+# Homepage service deployment configuration
+
+# Compose file settings
+homepage_compose_file: docker-compose_homepage.yml
+homepage_repo_path: "{{ compose_repo_path }}"
+homepage_project_name: homepage
+
+# Volume and config paths
+homepage_config_dir: "{{podman_service_dir}}/{{homepage_project_name}}/config"
+homepage_env_file: "{{ homepage_config_dir }}/.env"
+
+# Podman user
+podman_user: "{{podman_username}}"
