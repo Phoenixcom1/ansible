@@ -1,0 +1,67 @@
+---
+# Podman compose repository setup (clone only, deployment handled by service-specific roles)
+
+# Install dependencies
+- name: Install git and required packages
+  apt:
+    name:
+      - git
+    state: present
+    update_cache: yes
+  become: true
+
+# Clone the docker-compose repository (as podman user with SSH)
+- name: Check if compose repo already exists
+  stat:
+    path: "{{ compose_repo_path }}"
+  register: compose_repo_stat
+  become: true
+
+- name: Ensure compose repo path exists and is owned by podman user
+  file:
+    path: "{{ compose_repo_path }}"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+
+- name: Clone docker-compose repository (if not already present)
+  git:
+    repo: "{{ compose_repo_url }}"
+    dest: "{{ compose_repo_path }}"
+    version: main
+    update: no
+    accept_hostkey: yes
+    force: no
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    GIT_SSH_COMMAND: "ssh -i {{ (podman_home | default('/home/' ~ podman_user)) + '/.ssh/' + (podman_ssh_key_name | default('id_ed25519_podman')) }} -o StrictHostKeyChecking=accept-new"
+  when: not compose_repo_stat.stat.exists or not compose_repo_stat.stat.isdir
+  register: git_clone_result
+  ignore_errors: true
+
+# Install podman-compose from distribution package
+- name: Install podman-compose from apt
+  apt:
+    name: podman-compose
+    state: present
+    update_cache: yes
+  become: true
+
+# Create podman directories
+- name: Check if podman service directory exists
+  stat:
+    path: "{{ podman_service_dir }}"
+  register: podman_service_stat
+
+- name: Create podman service directory if missing
+  file:
+    path: "{{ podman_service_dir }}"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+  when: not homepage_config_stat.stat.exists

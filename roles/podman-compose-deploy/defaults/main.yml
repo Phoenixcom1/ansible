@@ -1,0 +1,9 @@
+---
+# Podman compose repository setup (handles cloning only)
+compose_repo_url: git@github.com:Phoenixcom1/docker_compose.git
+compose_repo_path: /opt/docker_compose
+
+podman_service_dir: /opt/podman
+
+podman_user: podman
+# SSH key path is inherited from podman-user role (podman_ssh_key_path)
