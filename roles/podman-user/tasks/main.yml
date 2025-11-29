@@ -1,0 +1,71 @@
+---
+- name: Check if podman user exists
+  getent:
+    database: passwd
+    key: "{{ podman_username }}"
+  register: podman_user_exists
+  failed_when: false
+  changed_when: false
+
+# Create podman user group (only if user doesn't exist)
+- name: Create podman group
+  group:
+    name: "{{ podman_username }}"
+    # Do not force GID here; let the system auto-assign unless a specific GID is provided.
+    # If you need to set a specific GID, set `podman_gid` and uncomment the line below.
+    # gid: "{{ podman_gid | default(omit) }}"
+    state: present
+  become: true
+  when: (podman_user_exists.entries | default([]) | length) == 0
+
+# Create podman user (UID/GID auto-assigned if not specified)
+- name: Create podman user
+  user:
+    name: "{{ podman_username }}"
+    # uid: "{{ podman_uid | default(omit) }}"
+    group: "{{ podman_username }}"
+    home: "{{ podman_home }}"
+    shell: "{{ podman_shell }}"
+    state: present
+    createhome: yes
+  become: true
+  when: (podman_user_exists.entries | default([]) | length) == 0
+
+# Setup SSH directory for git clone
+- name: Create .ssh directory for podman user
+  file:
+    path: "{{ podman_home }}/.ssh"
+    state: directory
+    owner: "{{ podman_username }}"
+    group: "{{ podman_username }}"
+    mode: "0700"
+  become: true
+
+# Copy SSH key for git authentication (if provided)
+- name: Copy SSH key to podman user
+  copy:
+    src: "{{ podman_ssh_key_path }}"
+    dest: "{{ podman_home }}/.ssh/{{ podman_ssh_key_name }}"
+    owner: "{{ podman_username }}"
+    group: "{{ podman_username }}"
+    mode: "0600"
+  become: true
+  when: podman_ssh_key_path is not none
+
+# Configure SSH to use the key for github.com
+- name: Configure SSH config for github.com
+  lineinfile:
+    path: "{{ podman_home }}/.ssh/config"
+    line: "{{ item }}"
+    create: yes
+    owner: "{{ podman_username }}"
+    group: "{{ podman_username }}"
+    mode: "0600"
+  become: true
+  loop:
+    - "Host github.com"
+    - "  HostName github.com"
+    - "  User git"
+    - "  IdentityFile ~/.ssh/{{ podman_ssh_key_name }}"
+    - "  StrictHostKeyChecking accept-new"
+  when: podman_ssh_key_path is not none
