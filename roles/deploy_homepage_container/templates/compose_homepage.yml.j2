@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  homepage:
+    image: ghcr.io/gethomepage/homepage:latest
+    container_name: homepage
+    environment:
+      HOMEPAGE_ALLOWED_HOSTS: {{ homepage_allowed_hosts }}
+    networks:
+      - podman_bridge
+    ports:
+      - 127.0.0.1:3000:3000
+    volumes:
+      - {{ homepage_config_dir }}:/app/config
+    restart: unless-stopped
+    env_file:
+      - {{ homepage_config_dir }}/.env
+    # Add routes to reach other networks via the gateway
+    command: sh -c "ip route add 192.168.1.0/24 via {{ podman_bridge_gateway }} 2>/dev/null; exec node server.js"
+    # Run container as the podman user (UID:GID dynamically discovered)
+    user: "{{ podman_user_uid }}:{{ podman_user_gid }}"
+
+networks:
+  podman_bridge:
+    external: true

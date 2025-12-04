@@ -1,6 +1,47 @@
 ---
 # Homepage service deployment
 
+# Discover podman user's UID and GID
+- name: Get podman user info
+  getent:
+    database: passwd
+    key: "{{ podman_user }}"
+  register: podman_user_info
+  changed_when: false
+
+- name: Extract podman user UID and GID
+  set_fact:
+    podman_user_uid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][1] }}"
+    podman_user_gid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][2] }}"
+  when: podman_user in podman_user_info.ansible_facts.getent_passwd
+
+# Discover podman bridge gateway (dynamic, no hardcoding)
+- name: Discover podman bridge gateway
+  shell: |
+    podman network inspect {{ podman_network }} --format='{% raw %}{{ (index .Subnets 0).Gateway }}{% endraw %}'
+  become: true
+  become_user: "{{ podman_user }}"
+  register: podman_gateway_result
+  changed_when: false
+  ignore_errors: true
+
+- name: Set podman bridge gateway fact
+  set_fact:
+    podman_bridge_gateway: "{{ podman_gateway_result.stdout | trim }}"
+  when:
+    - podman_gateway_result is defined
+    - podman_gateway_result.rc == 0
+    - podman_gateway_result.stdout | length > 0
+
+# Fallback to default if discovery fails
+- name: Set default gateway if discovery failed
+  set_fact:
+    podman_bridge_gateway: "10.89.1.1"
+  when: >
+    podman_gateway_result is not defined or
+    podman_gateway_result.rc != 0 or
+    (podman_gateway_result.stdout | default('') | length == 0)
+
 # Create config directories
 - name: Check if homepage config directory exists
   stat:
@@ -33,7 +74,28 @@
   become: true
   when: not homepage_env_stat.stat.exists
 
+# Template the compose file with dynamic gateway
+- name: Template docker-compose file with dynamic gateway
+  template:
+    src: "{{ homepage_compose_template }}"
+    dest: "{{ homepage_repo_path }}/{{ homepage_compose_file }}"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+
 # Deploy container
+- name: Remove existing homepage container if present
+  command: >
+    /usr/bin/podman-compose
+    -f {{ homepage_repo_path }}/{{ homepage_compose_file }}
+    --project-name {{ homepage_project_name }}
+    down --remove-orphans
+  become: true
+  become_user: "{{ podman_user }}"
+  changed_when: false
+  ignore_errors: true
+
 - name: Run homepage docker-compose
   command: >
     /usr/bin/podman-compose
@@ -44,3 +106,20 @@
   become_user: "{{ podman_user }}"
   register: homepage_compose_result
   changed_when: "'created' in homepage_compose_result.stdout or 'started' in homepage_compose_result.stdout"
+
+# Fix ownership of mounted volumes so podman user can edit config files
+# (container runs with different UID mapping in rootless Podman)
+- name: Fix config directory ownership (for podman user access)
+  file:
+    path: "{{ homepage_config_dir }}"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+    recurse: yes
+  become: true
+
+- name: Display homepage deployment result
+  debug:
+    msg: "Homepage deployed successfully - accessible at https://{{ homepage_domain }}"
+  when: homepage_compose_result.rc == 0
