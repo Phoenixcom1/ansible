@@ -15,8 +15,11 @@ services:
     restart: unless-stopped
     env_file:
       - {{ homepage_config_dir }}/.env
-    # Add routes to reach other networks via the gateway
-    command: sh -c "ip route add 192.168.1.0/24 via {{ podman_bridge_gateway }} 2>/dev/null; exec node server.js"
+    # Use keep-id to maintain user namespace mapping for ping capability
+    userns_mode: "keep-id"
+    # Add NET_RAW capability to allow ping (ICMP)
+    cap_add:
+      - NET_RAW
     # Run container as the podman user (UID:GID dynamically discovered)
     user: "{{ podman_user_uid }}:{{ podman_user_gid }}"
 
