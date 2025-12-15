@@ -7,13 +7,18 @@
 - name: Gather facts
   setup:
 
-# - name: Set parent interface fact
-#   set_fact:
-#     parent_iface: "{{ ansible_default_ipv4.interface }}"
+- name: Set parent interface fact
+  set_fact:
+    parent_iface: "{{ ansible_default_ipv4.interface }}"
 
-# - name: Set VLAN interface name fact
-#   set_fact:
-#     vlan_iface: "{{ parent_iface }}.{{ vlan_id }}"
+- name: Set VLAN interface name fact
+  when: vlan_id is defined
+  set_fact:
+    vlan_iface: "{{ parent_iface }}.{{ vlan_id }}"
+
+- name: Set podman_network_interface
+  set_fact:
+    podman_network_interface: "{{ vlan_iface if vlan_iface is defined else parent_iface }}"
 
 # Enable lingering for podman user to support systemd user session
 - name: Enable lingering for podman user
@@ -71,42 +76,93 @@
     mode: 0644
   become: true
 
-# - name: Create netplan VLAN config
-#   template:
-#     src: vlan-netplan.yaml.j2
-#     dest: "/etc/netplan/50-vlan-{{ vlan_id }}.yaml"
-#     mode: "0600"
-#   notify:
-#     - apply netplan
-#   become: true
-
-# - meta: flush_handlers # triggers handlers immediately
-
 # #######################################################################
-# # NETPLAN BRIDGE FOR VLAN
+# # Create VLAN IF
 # #######################################################################
 
-# - name: Create bridge netplan config
-#   template:
-#     src: vlan-bridge-netplan.yaml.j2
-#     dest: "/etc/netplan/51-bridge-{{ vlan_id }}.yaml"
-#     mode: "0600"
-#   notify:
-#     - apply netplan
-#   become: true
+- name: Create netplan VLAN config
+  template:
+    src: vlan-netplan.yaml.j2
+    dest: "/etc/netplan/50-vlan-{{ vlan_id }}.yaml"
+    mode: "0600"
+  notify:
+    - apply netplan
+  become: true
 
-# - meta: flush_handlers
+- meta: flush_handlers # triggers handlers immediately
 
-# # --------------------------------------------------------------------
-# # Podman macvlan network setup
-# # --------------------------------------------------------------------
+- name: Wait for VLAN interface to appear
+  command: ip link show {{ vlan_iface }}
+  register: vlan_check
+  retries: 5
+  delay: 2
+  until: vlan_check.rc == 0
 
-# - name: Wait for VLAN interface to appear
-#   command: ip link show {{ vlan_iface }}
-#   register: vlan_check
-#   retries: 5
-#   delay: 2
-#   until: vlan_check.rc == 0
+#######################################################################
+# Create host bridge on VLAN interface for proper VLAN isolation
+#######################################################################
+
+- name: Create netplan bridge config (bridge on VLAN interface)
+  template:
+    src: vlan-bridge-netplan.yaml.j2
+    dest: "/etc/netplan/51-bridge-vlan.yaml"
+    mode: "0600"
+  notify:
+    - apply netplan
+  become: true
+  when: bridge_name is defined and bridge_ip is defined
+
+- meta: flush_handlers
+
+- name: Wait for host bridge to appear
+  command: ip link show {{ bridge_name }}
+  register: bridge_check
+  retries: 5
+  delay: 2
+  until: bridge_check.rc == 0
+  when: bridge_name is defined
+
+# Enable VLAN filtering on the bridge and configure VLAN settings
+- name: Enable VLAN filtering on bridge
+  command: ip link set {{ bridge_name }} type bridge vlan_filtering 1 vlan_protocol 802.1Q
+  become: true
+  when: bridge_name is defined
+  changed_when: false
+
+- name: Set default PVID to {{ vlan_id }} on bridge
+  command: ip link set {{ bridge_name }} type bridge vlan_default_pvid {{ vlan_id }}
+  become: true
+  when: bridge_name is defined and vlan_id is defined
+  changed_when: false
+
+# Configure VLAN membership for bridge ports
+- name: Add VLAN {{ vlan_id }} to bridge as PVID with untagged egress
+  command: bridge vlan add dev {{ bridge_name }} vid {{ vlan_id }} self pvid untagged
+  become: true
+  when: bridge_name is defined and vlan_id is defined
+  ignore_errors: true
+  changed_when: false
+
+- name: Add VLAN {{ vlan_id }} to VLAN interface port (tagged egress)
+  command: bridge vlan add dev {{ vlan_iface }} vid {{ vlan_id }}
+  become: true
+  when: vlan_iface is defined and vlan_id is defined
+  ignore_errors: true
+  changed_when: false
+
+- name: Remove default VLAN 1 from bridge (if possible)
+  command: bridge vlan del dev {{ bridge_name }} vid 1
+  become: true
+  when: bridge_name is defined
+  ignore_errors: true
+  changed_when: false
+
+- name: Remove default VLAN 1 from VLAN interface port (if possible)
+  command: bridge vlan del dev {{ vlan_iface }} vid 1
+  become: true
+  when: vlan_iface is defined
+  ignore_errors: true
+  changed_when: false
 
 #######################################################################
 # Create Podman bridge network for containers
@@ -124,6 +180,8 @@
   command: >
     podman network create
     --driver bridge
+    {% if bridge_name is defined %}--interface-name {{ bridge_name }}{% endif %}
+    {% if vlan_id is defined %}--opt vlan={{ vlan_id }}{% endif %}
     {{ podman_network }}
   become: true
   become_user: "{{ podman_user | default('podman') }}"
@@ -136,3 +194,17 @@
   become: true
   become_user: "{{ podman_user | default('podman') }}"
   changed_when: false
+
+- name: Display podman-vlan-setup results
+  debug:
+    msg: |
+      Podman VLAN Setup Complete:
+      =============================
+      Parent Interface: {{ parent_iface }}
+      {% if vlan_iface is defined %}VLAN Interface: {{ vlan_iface }}
+      VLAN ID: {{ vlan_id }}
+      {% endif %}{% if bridge_name is defined %}Host Bridge: {{ bridge_name }} ({{ bridge_ip }})
+      {% endif %}Network Interface for Podman: {{ bridge_name if bridge_name is defined else podman_network_interface }}
+      Podman Network Name: {{ podman_network }}
+      Network Driver: bridge
+      VLAN Isolation: {{ 'Enabled' if bridge_name is defined else 'Not configured' }}

@@ -1,3 +1,18 @@
 ---
+# vlan_id: 107
+
+# # VLAN IP address configuration (e.g., "192.168.107.10/24")
+# # Leave empty for DHCP or if you don't want to assign an IP to the VLAN interface
+# vlan_ip_address: "192.168.107.2/24"
+
 # Podman network setup (bridge network for container communication)
 podman_network: "podman_bridge"
+
+# Optional: Specify which network interface to bind the bridge to
+# Example: podman_network_interface: "eth0"
+# Leave empty to let Podman auto-select
+podman_network_interface: ""
+
+# Host bridge configuration (for VLAN isolation)
+# bridge_name: "br-vlan107"        # Name of the host bridge interface
+# bridge_ip: "192.168.107.1/24"    # IP address for the host bridge (on the VLAN)

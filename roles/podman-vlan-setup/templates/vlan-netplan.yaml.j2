@@ -6,7 +6,6 @@ network:
     {{ vlan_iface }}:
       id: {{ vlan_id }}
       link: {{ parent_iface }}
-      dhcp4: false
-      addresses:
-        - {{ host_vlan_ip }}
-      optional: true
+      {% if vlan_ip_address %}addresses:
+        - {{ vlan_ip_address }}{% endif %}
+

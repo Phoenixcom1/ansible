@@ -2,15 +2,6 @@ network:
   version: 2
   renderer: networkd
 
-  ethernets:
-    {{ parent_iface }}:
-      dhcp4: true
-
-  vlans:
-    {{ vlan_iface }}:
-      id: {{ vlan_id }}
-      link: {{ parent_iface }}
-
   bridges:
     {{ bridge_name }}:
       interfaces:
