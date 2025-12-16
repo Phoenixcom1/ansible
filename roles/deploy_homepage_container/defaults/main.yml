@@ -12,7 +12,6 @@ homepage_config_dir: "{{podman_service_dir}}/{{homepage_project_name}}/config"
 homepage_env_file: "{{ homepage_config_dir }}/.env"
 
 # Homepage application settings
-homepage_domain: "homepage.kerberos.fassbender.contact"
 homepage_allowed_hosts: "homepage.kerberos.fassbender.contact,192.168.1.11"
 
 # Podman user and network
@@ -21,3 +20,7 @@ podman_network: "podman_bridge" # Network the container runs on
 
 # Podman bridge gateway (discovered dynamically by the role)
 podman_bridge_gateway: "10.89.1.1" # Default fallback if discovery fails
+
+# Homepage reverse proxy
+homepage_domain: "homepage.kerberos.fassbender.contact"
+homepage_port: 3000

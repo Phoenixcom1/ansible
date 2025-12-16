@@ -28,6 +28,6 @@ jellyfin_network_mount_type: "cifs"
 jellyfin_network_mount_options: "vers=3.1.1,_netdev,credentials=/root/.smbcredentials,defaults,uid=1031,gid=100,rw"
 
 # Jellyfin application settings
-jellyfin_published_server_url: "https://jellyfin.kerberos.fassbender.contact"
+jellyfin_domain: "jellyfin.kerberos.fassbender.contact"
 jellyfin_port: 8096
 jellyfin_discovery_port: 7359

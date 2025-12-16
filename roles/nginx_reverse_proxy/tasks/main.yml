@@ -29,22 +29,6 @@
     mode: "0644"
   become: true
 
-- name: Deploy homepage reverse proxy config
-  template:
-    src: homepage.conf.j2
-    dest: /etc/nginx/conf.d/homepage.conf
-    mode: "0644"
-  notify: reload nginx
-  become: true
-
-- name: Deploy jellyfin reverse proxy config
-  template:
-    src: jellyfin.conf.j2
-    dest: /etc/nginx/conf.d/jellyfin.conf
-    mode: "0644"
-  notify: reload nginx
-  become: true
-
 - name: Ensure nginx is enabled and running
   systemd:
     name: nginx

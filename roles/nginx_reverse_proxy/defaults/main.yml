@@ -5,12 +5,3 @@ ssl_key: "/etc/ssl/wildcard/kerberos.fassbender.contact/key.pem"
 # Network binding (optional: specify IP to bind nginx to VLAN 100)
 # Leave empty to bind to all interfaces, or set to VLAN IP like "192.168.100.2"
 nginx_listen_ip: ""
-
-# Homepage reverse proxy
-homepage_domain: "homepage.kerberos.fassbender.contact"
-homepage_port: 3000
-
-# Jellyfin reverse proxy
-jellyfin_domain: "jellyfin.kerberos.fassbender.contact"
-jellyfin_port: 8096
-jellyfin_discovery_port: 7359

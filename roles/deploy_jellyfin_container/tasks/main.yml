@@ -135,5 +135,21 @@
 
 - name: Display jellyfin deployment result
   debug:
-    msg: "Jellyfin deployed successfully - accessible at {{ jellyfin_published_server_url }}"
+    msg: "Jellyfin deployed successfully - accessible at https://{{ jellyfin_domain }}"
   when: jellyfin_compose_result.rc == 0 and jellyfin_status.stdout | default('') | length > 0
+
+# Deploy nginx reverse proxy configuration
+- name: Ensure nginx conf.d directory exists
+  file:
+    path: /etc/nginx/conf.d
+    state: directory
+    mode: 0755
+  become: true
+
+- name: Deploy jellyfin nginx reverse proxy config
+  template:
+    src: jellyfin.conf.j2
+    dest: /etc/nginx/conf.d/jellyfin.conf
+    mode: "0644"
+  notify: reload nginx
+  become: true
