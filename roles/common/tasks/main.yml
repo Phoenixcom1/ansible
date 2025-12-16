@@ -37,3 +37,33 @@
   become: true
   ansible.builtin.command:
     cmd: "timedatectl set-timezone {{ timezone }}"
+
+# Copy SMB credentials file from controller if available
+- name: Check if .smbcredentials exists on controller
+  stat:
+    path: "{{ lookup('env', 'HOME') }}/.smbcredentials"
+  register: smbcreds_controller
+  delegate_to: localhost
+  become: false
+  changed_when: false
+
+- name: Copy .smbcredentials file to target root home
+  ansible.builtin.copy:
+    src: "{{ lookup('env', 'HOME') }}/.smbcredentials"
+    dest: /root/.smbcredentials
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  when: smbcreds_controller.stat.exists
+  register: smbcreds_copied
+
+- name: Display SMB credentials copy status
+  debug:
+    msg: ".smbcredentials file copied to /root/.smbcredentials"
+  when: smbcreds_copied.changed
+
+- name: Display SMB credentials not found message
+  debug:
+    msg: ".smbcredentials file not found on controller - skipping copy"
+  when: not smbcreds_controller.stat.exists

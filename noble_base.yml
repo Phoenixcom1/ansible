@@ -1,8 +1,9 @@
 - hosts: all
   become: true
-  environment:
-    http_proxy:
-    https_proxy:
+  # Leaving those empty causes issues e.g. when pulling container images.
+  # environment:
+  #   http_proxy:
+  #   https_proxy:
   vars_prompt:
     - name: cryptsetup_user_passphrase
       prompt: "Enter the passphrase for the encrypted partitions"
@@ -10,7 +11,7 @@
       confirm: true
 
   roles:
-    #- common
+    - common
     #- local-user
     #- qemu-guest-agent
     #- podman
@@ -19,3 +20,4 @@
     - nginx_reverse_proxy
     - podman-compose-deploy
     - deploy_homepage_container
+    - deploy_jellyfin_container

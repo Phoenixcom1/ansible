@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  jellyfin:
+    image: docker.io/jellyfin/jellyfin:latest
+    container_name: jellyfin
+    networks:
+      - {{ podman_network }}
+    ports:
+      - "127.0.0.1:{{ jellyfin_port }}:{{ jellyfin_port }}/tcp"
+      - "{{ jellyfin_discovery_port }}:{{ jellyfin_discovery_port }}/udp"
+    volumes:
+      - {{ jellyfin_config_dir }}:/config
+      - {{ jellyfin_cache_dir }}:/cache
+      - type: bind
+        source: {{ jellyfin_media_dir }}
+        target: /media
+        read_only: true
+    restart: unless-stopped
+    environment:
+      - JELLYFIN_PublishedServerUrl={{ jellyfin_published_server_url }}
+
+networks:
+  {{ podman_network }}:
+    external: true

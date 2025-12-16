@@ -88,6 +88,7 @@
   notify:
     - apply netplan
   become: true
+  when: vlan_id is defined
 
 - meta: flush_handlers # triggers handlers immediately
 
@@ -97,6 +98,7 @@
   retries: 5
   delay: 2
   until: vlan_check.rc == 0
+  when: vlan_id is defined
 
 #######################################################################
 # Create host bridge on VLAN interface for proper VLAN isolation

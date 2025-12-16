@@ -1,0 +1,139 @@
+---
+# Jellyfin service deployment
+
+# Network mount setup (NFS or SMB)
+- name: Install NFS utilities if using NFS mount
+  apt:
+    name: nfs-common
+    state: present
+    update_cache: yes
+  become: true
+  when: jellyfin_enable_network_mount and jellyfin_network_mount_type == "nfs"
+
+- name: Install CIFS utilities if using SMB mount
+  apt:
+    name: cifs-utils
+    state: present
+    update_cache: yes
+  become: true
+  when: jellyfin_enable_network_mount and jellyfin_network_mount_type == "cifs"
+
+# Create media mount directory (always, even if network mount is disabled)
+- name: Create media mount directory
+  file:
+    path: "{{ jellyfin_media_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Mount network media directory (and persist to fstab)
+  mount:
+    path: "{{ jellyfin_media_dir }}"
+    src: "{{ jellyfin_network_mount_source }}"
+    fstype: "{{ jellyfin_network_mount_type }}"
+    opts: "{{ jellyfin_network_mount_options }}"
+    state: mounted
+    dump: 0
+    passno: 0
+  become: true
+  when: jellyfin_enable_network_mount
+
+# Create config and cache directories
+- name: Check if jellyfin config directory exists
+  stat:
+    path: "{{ jellyfin_config_dir }}"
+  register: jellyfin_config_stat
+
+- name: Create jellyfin config directory if missing
+  file:
+    path: "{{ jellyfin_config_dir }}"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+  when: not jellyfin_config_stat.stat.exists
+
+- name: Check if jellyfin cache directory exists
+  stat:
+    path: "{{ jellyfin_cache_dir }}"
+  register: jellyfin_cache_stat
+
+- name: Create jellyfin cache directory if missing
+  file:
+    path: "{{ jellyfin_cache_dir }}"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+  when: not jellyfin_cache_stat.stat.exists
+
+# Template the compose file
+- name: Template docker-compose file
+  template:
+    src: "{{ jellyfin_compose_template }}"
+    dest: "{{ jellyfin_repo_path }}/{{ jellyfin_compose_file }}"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+
+# Fix ownership of config and cache directories so podman user can manage them
+- name: Fix config directory ownership (for podman user access)
+  file:
+    path: "{{ jellyfin_config_dir }}"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+    recurse: yes
+  become: true
+
+- name: Fix cache directory ownership (for podman user access)
+  file:
+    path: "{{ jellyfin_cache_dir }}"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+    recurse: yes
+  become: true
+
+# Deploy container
+- name: Remove existing jellyfin container if present
+  command: >
+    /usr/bin/podman-compose
+    -f {{ jellyfin_repo_path }}/{{ jellyfin_compose_file }}
+    --project-name {{ jellyfin_project_name }}
+    down --remove-orphans
+  become: true
+  become_user: "{{ podman_user }}"
+  changed_when: false
+  ignore_errors: true
+
+- name: Run jellyfin docker-compose
+  command: >
+    /usr/bin/podman-compose
+    -f {{ jellyfin_repo_path }}/{{ jellyfin_compose_file }}
+    --project-name {{ jellyfin_project_name }}
+    up -d
+  become: true
+  become_user: "{{ podman_user }}"
+  register: jellyfin_compose_result
+  changed_when: "'created' in jellyfin_compose_result.stdout or 'started' in jellyfin_compose_result.stdout"
+  until: jellyfin_compose_result.rc == 0
+
+- name: Get Jellyfin container status
+  command: podman ps -a --filter name=jellyfin --format='{% raw %}{{.Status}}{% endraw %}'
+  become: true
+  become_user: "{{ podman_user }}"
+  register: jellyfin_status
+  changed_when: false
+
+- name: Display jellyfin deployment result
+  debug:
+    msg: "Jellyfin deployed successfully - accessible at {{ jellyfin_published_server_url }}"
+  when: jellyfin_compose_result.rc == 0 and jellyfin_status.stdout | default('') | length > 0

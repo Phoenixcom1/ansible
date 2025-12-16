@@ -1,0 +1,33 @@
+---
+# Jellyfin service deployment configuration
+
+# Compose file settings
+jellyfin_project_name: jellyfin
+jellyfin_compose_file: compose_jellyfin.yml
+jellyfin_compose_template: compose_jellyfin.yml.j2
+jellyfin_repo_path: "{{ podman_service_dir }}/{{ jellyfin_project_name }}"
+
+# Volume and config paths
+jellyfin_config_dir: "{{ podman_service_dir }}/{{ jellyfin_project_name }}/config"
+jellyfin_cache_dir: "{{ podman_service_dir }}/{{ jellyfin_project_name }}/cache"
+jellyfin_media_dir: "/mnt/jellyfin-media"
+
+# Network mount configuration (NFS or SMB)
+# Set to true to enable network mount
+jellyfin_enable_network_mount: false
+# SMB example: "//datenbunker.local/Movies"
+# NFS example: "192.168.1.100:/export/Movies"
+jellyfin_network_mount_source: "//datenbunker.local/Movies"
+# cifs (for SMB) or nfs
+jellyfin_network_mount_type: "cifs"
+# SMB options with credentials file
+# vers=3.1.1 - SMB protocol version
+# _netdev - network device (don't mount until network is ready)
+# credentials=/path/to/credentials - file with username=user and password=pass
+# uid/gid - map to container user
+jellyfin_network_mount_options: "vers=3.1.1,_netdev,credentials=/root/.smbcredentials,defaults,uid=1031,gid=100,rw"
+
+# Jellyfin application settings
+jellyfin_published_server_url: "https://jellyfin.kerberos.fassbender.contact"
+jellyfin_port: 8096
+jellyfin_discovery_port: 7359
