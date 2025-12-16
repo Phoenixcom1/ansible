@@ -14,7 +14,7 @@ jellyfin_media_dir: "/mnt/jellyfin-media"
 
 # Network mount configuration (NFS or SMB)
 # Set to true to enable network mount
-jellyfin_enable_network_mount: false
+jellyfin_enable_network_mount: true
 # SMB example: "//datenbunker.local/Movies"
 # NFS example: "192.168.1.100:/export/Movies"
 jellyfin_network_mount_source: "//datenbunker.local/Movies"

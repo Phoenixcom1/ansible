@@ -20,6 +20,18 @@
     name: curl
   become: true
 
+- name: Install avahi-daemon for mDNS (.local) domain resolution
+  ansible.builtin.package:
+    name: avahi-daemon
+  become: true
+
+- name: Ensure avahi-daemon is enabled and running
+  ansible.builtin.systemd:
+    name: avahi-daemon
+    enabled: yes
+    state: started
+  become: true
+
 # spin-off project of FreeRDP
 - name: Install winpr
   ansible.builtin.package:
