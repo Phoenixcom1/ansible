@@ -1,0 +1,49 @@
+version: "3.8"
+
+services:
+  vaultwarden:
+    restart: always
+    image: "docker.io/vaultwarden/server:latest"
+    container_name: vaultwarden
+    environment:
+      # Timezone settings
+      - TZ={{ vaultwarden_timezone }}
+      # Logging configuration
+      - LOG_FILE=/data/bitwarden.log
+      - EXTENDED_LOGGING={{ vaultwarden_extended_logging | lower }}
+      - LOG_LEVEL={{ vaultwarden_log_level }}
+      # Performance settings
+      - ROCKET_WORKERS={{ vaultwarden_rocket_workers }}
+      - WEBSOCKET_ENABLED={{ vaultwarden_websocket_enabled | lower }}
+      # Security settings
+      - SIGNUPS_ALLOWED={{ vaultwarden_signups_allowed | lower }}
+      - SHOW_PASSWORD_HINT={{ vaultwarden_show_password_hint | lower }}
+      - DISABLE_ICON_DOWNLOAD={{ vaultwarden_disable_icon_download | lower }}
+      - ADMIN_TOKEN={{ vaultwarden_admin_token }}
+      # Domain configuration for reverse proxy
+      - DOMAIN={{ vaultwarden_published_server_url }}
+{% if vaultwarden_smtp_enabled | default(false) %}
+      # SMTP configuration
+      - SMTP_HOST={{ vaultwarden_smtp_host }}
+      - SMTP_PORT={{ vaultwarden_smtp_port }}
+      - SMTP_SSL={{ vaultwarden_smtp_ssl | lower }}
+      - SMTP_USERNAME={{ vaultwarden_smtp_username }}
+      - SMTP_PASSWORD={{ vaultwarden_smtp_password }}
+      - SMTP_FROM={{ vaultwarden_smtp_from }}
+{% endif %}
+    ports:
+      - "127.0.0.1:{{ vaultwarden_port }}:80/tcp"
+    networks:
+      - {{ vaultwarden_network }}
+    volumes:
+      - {{ vaultwarden_config_dir }}:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/alive"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
+
+networks:
+  {{ vaultwarden_network }}:
+    driver: {{ vaultwarden_network_driver }}

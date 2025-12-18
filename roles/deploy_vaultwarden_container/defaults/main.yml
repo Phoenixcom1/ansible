@@ -1,0 +1,45 @@
+---
+# Vaultwarden service deployment configuration
+
+# Compose file settings
+vaultwarden_project_name: vaultwarden
+vaultwarden_compose_file: compose_vaultwarden.yml
+vaultwarden_compose_template: compose_vaultwarden.yml.j2
+vaultwarden_repo_path: "{{ podman_service_dir }}/{{ vaultwarden_project_name }}"
+
+# Volume and config paths
+vaultwarden_config_dir: "{{ podman_service_dir }}/{{ vaultwarden_project_name }}/data"
+
+# Network configuration (isolated from other containers)
+vaultwarden_network: vaultwarden_net
+vaultwarden_network_driver: bridge
+
+# Vaultwarden application settings
+vaultwarden_domain: "vault.kerberos.fassbender.contact"
+vaultwarden_port: 5152
+
+# Environment variables
+vaultwarden_timezone: "Europe/Paris"
+vaultwarden_log_level: "warn"
+vaultwarden_rocket_workers: 20
+vaultwarden_websocket_enabled: true
+vaultwarden_signups_allowed: false
+vaultwarden_show_password_hint: false
+vaultwarden_disable_icon_download: true
+vaultwarden_extended_logging: true
+
+# Admin token (should be overridden in inventory/host_vars)
+# Generate with: openssl rand -base64 32
+vaultwarden_admin_token: "ChangeMe-GenerateWithOpenssl"
+
+# SMTP configuration (optional, commented by default)
+# vaultwarden_smtp_enabled: false
+# vaultwarden_smtp_host: "smtp.example.com"
+# vaultwarden_smtp_port: 587
+# vaultwarden_smtp_ssl: true
+# vaultwarden_smtp_username: "user@example.com"
+# vaultwarden_smtp_password: "password"
+# vaultwarden_smtp_from: "vaultwarden@example.com"
+
+# Reverse proxy settings
+vaultwarden_published_server_url: "https://{{ vaultwarden_domain }}"

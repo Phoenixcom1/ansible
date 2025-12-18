@@ -1,5 +1,5 @@
 server {
-    {% if nginx_listen_ip %}
+    {% if nginx_listen_ip | default('') %}
     listen {{ nginx_listen_ip }}:443 ssl http2;
     listen [{{ nginx_listen_ip }}]:443 ssl http2;
     {% else %}

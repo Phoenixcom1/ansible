@@ -1,0 +1,132 @@
+---
+# Vaultwarden service deployment
+
+# Create config directory
+- name: Check if vaultwarden config directory exists
+  stat:
+    path: "{{ vaultwarden_config_dir }}"
+  register: vaultwarden_config_stat
+
+- name: Create vaultwarden config directory if missing
+  file:
+    path: "{{ vaultwarden_config_dir }}"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+  when: not vaultwarden_config_stat.stat.exists
+
+- name: Check if vaultwarden repo directory exists
+  stat:
+    path: "{{ vaultwarden_repo_path }}"
+  register: vaultwarden_repo_stat
+
+- name: Create vaultwarden repo directory
+  file:
+    path: "{{ vaultwarden_repo_path }}"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+  when: not vaultwarden_repo_stat.stat.exists
+
+# Create the isolated network for vaultwarden
+- name: Create isolated vaultwarden network
+  command: podman network create {{ vaultwarden_network }}
+  become: true
+  become_user: "{{ podman_user }}"
+  register: vaultwarden_network_result
+  changed_when: "'Created' in vaultwarden_network_result.stdout or 'already exists' not in vaultwarden_network_result.stderr"
+  failed_when: vaultwarden_network_result.rc != 0 and 'already exists' not in vaultwarden_network_result.stderr
+  ignore_errors: true
+
+- name: Deploy vaultwarden compose file
+  template:
+    src: compose_vaultwarden.yml.j2
+    dest: "{{ vaultwarden_repo_path }}/{{ vaultwarden_compose_file }}"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+
+- name: Remove existing jellyfin container if present
+  command: >
+    /usr/bin/podman-compose
+    -f {{ vaultwarden_repo_path }}/{{ vaultwarden_compose_file }}
+    --project-name {{ vaultwarden_project_name }}
+    down --remove-orphans
+  become: true
+  become_user: "{{ podman_user }}"
+  changed_when: false
+  ignore_errors: true
+
+- name: Deploy vaultwarden container via docker-compose
+  command: >
+    podman-compose
+    -f {{ vaultwarden_repo_path }}/{{ vaultwarden_compose_file }}
+    --project-name {{ vaultwarden_project_name }}
+    up -d
+  become: true
+  become_user: "{{ podman_user }}"
+  register: vaultwarden_compose_result
+  changed_when: "'created' in vaultwarden_compose_result.stdout or 'started' in vaultwarden_compose_result.stdout"
+  until: vaultwarden_compose_result.rc == 0
+
+# Wait for container to be in running state
+- name: Wait for Vaultwarden container to start
+  command: podman ps --filter name=vaultwarden --filter status=running --format='{% raw %}{{.ID}}{% endraw %}'
+  become: true
+  become_user: "{{ podman_user }}"
+  register: vaultwarden_running
+  retries: 10
+  delay: 2
+  until: vaultwarden_running.stdout | length > 0
+  changed_when: false
+
+- name: Get Vaultwarden container logs on failure
+  command: podman logs vaultwarden
+  become: true
+  become_user: "{{ podman_user }}"
+  register: vaultwarden_logs
+  changed_when: false
+  when: vaultwarden_running.stdout | length == 0
+
+- name: Fail if Vaultwarden container failed to start
+  fail:
+    msg: |
+      Vaultwarden container failed to start!
+      Logs:
+      {{ vaultwarden_logs.stdout }}
+  when: vaultwarden_running.stdout | length == 0
+
+- name: Get Vaultwarden container full status
+  command: podman ps -a --filter name=vaultwarden --format='{% raw %}{{.Status}}{% endraw %}'
+  become: true
+  become_user: "{{ podman_user }}"
+  register: vaultwarden_status
+  changed_when: false
+
+- name: Display vaultwarden deployment result
+  debug:
+    msg: |
+      Vaultwarden deployed successfully!
+      Container Status: {{ vaultwarden_status.stdout }}
+      Accessible at: {{ vaultwarden_published_server_url }}
+
+# Deploy nginx reverse proxy configuration
+- name: Ensure nginx conf.d directory exists
+  file:
+    path: /etc/nginx/conf.d
+    state: directory
+    mode: 0755
+  become: true
+
+- name: Deploy vaultwarden nginx reverse proxy config
+  template:
+    src: vaultwarden.conf.j2
+    dest: /etc/nginx/conf.d/vaultwarden.conf
+    mode: "0644"
+  notify: reload nginx
+  become: true
