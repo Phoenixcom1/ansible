@@ -4,20 +4,23 @@
   # environment:
   #   http_proxy:
   #   https_proxy:
-  vars_prompt:
-    - name: cryptsetup_user_passphrase
-      prompt: "Enter the passphrase for the encrypted partitions"
-      private: true
-      confirm: true
+
+  # vars_prompt:
+  #   - name: cryptsetup_user_passphrase
+  #     prompt: "Enter the passphrase for the encrypted partitions"
+  #     private: true
+  #     confirm: true
 
   roles:
-    - common
+    #- common
     #- local-user
     #- qemu-guest-agent
     #- podman
-    - podman-user
-    - podman-vlan-setup
+    #- podman-user
+    #- podman-vlan-setup
     - nginx_reverse_proxy
     - podman-compose-deploy
-    - deploy_homepage_container
-    - deploy_jellyfin_container
+    #- deploy_homepage_container
+    #- deploy_jellyfin_container
+    #- deploy_vaultwarden_container
+    - deploy_unifi_controller_container

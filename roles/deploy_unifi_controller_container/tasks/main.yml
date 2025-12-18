@@ -1,0 +1,122 @@
+---
+# UniFi Controller service deployment
+
+# Create config directory
+- name: Check if unifi config directory exists
+  stat:
+    path: "{{ unifi_config_dir }}"
+  register: unifi_config_stat
+
+- name: Create unifi config directory if missing
+  file:
+    path: "{{ unifi_config_dir }}"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+  when: not unifi_config_stat.stat.exists
+
+- name: Check if unifi repo directory exists
+  stat:
+    path: "{{ unifi_repo_path }}"
+  register: unifi_repo_stat
+
+- name: Create unifi repo directory
+  file:
+    path: "{{ unifi_repo_path }}"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+  when: not unifi_repo_stat.stat.exists
+
+- name: Deploy unifi compose file
+  template:
+    src: compose_unifi.yml.j2
+    dest: "{{ unifi_repo_path }}/{{ unifi_compose_file }}"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+
+- name: Remove existing unifi container if present
+  command: >
+    /usr/bin/podman-compose
+    -f {{ unifi_repo_path }}/{{ unifi_compose_file }}
+    --project-name {{ unifi_project_name }}
+    down --remove-orphans
+  become: true
+  become_user: "{{ podman_user }}"
+  changed_when: false
+  ignore_errors: true
+
+- name: Deploy unifi container via docker-compose
+  command: >
+    podman-compose
+    -f {{ unifi_repo_path }}/{{ unifi_compose_file }}
+    --project-name {{ unifi_project_name }}
+    up -d
+  become: true
+  become_user: "{{ podman_user }}"
+  register: unifi_compose_result
+  changed_when: "'created' in unifi_compose_result.stdout or 'started' in unifi_compose_result.stdout"
+  until: unifi_compose_result.rc == 0
+
+# Wait for container to be in running state
+- name: Wait for UniFi container to start
+  command: podman ps --filter name=unifi --filter status=running --format='{% raw %}{{.ID}}{% endraw %}'
+  become: true
+  become_user: "{{ podman_user }}"
+  register: unifi_running
+  retries: 15
+  delay: 3
+  until: unifi_running.stdout | length > 0
+  changed_when: false
+
+- name: Get UniFi container logs on failure
+  command: podman logs unifi
+  become: true
+  become_user: "{{ podman_user }}"
+  register: unifi_logs
+  changed_when: false
+  when: unifi_running.stdout | length == 0
+
+- name: Fail if UniFi container failed to start
+  fail:
+    msg: |
+      UniFi container failed to start!
+      Logs:
+      {{ unifi_logs.stdout }}
+  when: unifi_running.stdout | length == 0
+
+- name: Get UniFi container full status
+  command: podman ps -a --filter name=unifi --format='{% raw %}{{.Status}}{% endraw %}'
+  become: true
+  become_user: "{{ podman_user }}"
+  register: unifi_status
+  changed_when: false
+
+- name: Display unifi deployment result
+  debug:
+    msg: |
+      UniFi Controller deployed successfully!
+      Container Status: {{ unifi_status.stdout }}
+      Web UI accessible at: {{ unifi_published_server_url }}/manage
+
+# Deploy nginx reverse proxy configuration
+- name: Ensure nginx conf.d directory exists
+  file:
+    path: /etc/nginx/conf.d
+    state: directory
+    mode: 0755
+  become: true
+
+- name: Deploy unifi nginx reverse proxy config
+  template:
+    src: unifi.conf.j2
+    dest: /etc/nginx/conf.d/unifi.conf
+    mode: "0644"
+  notify: reload nginx
+  become: true

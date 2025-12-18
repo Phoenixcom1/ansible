@@ -1,0 +1,33 @@
+---
+# UniFi Controller service deployment configuration
+
+# Compose file settings
+unifi_project_name: unifi
+unifi_compose_file: compose_unifi.yml
+unifi_compose_template: compose_unifi.yml.j2
+unifi_repo_path: "{{ podman_service_dir }}/{{ unifi_project_name }}"
+
+# Volume and config paths
+unifi_config_dir: "{{ podman_service_dir }}/{{ unifi_project_name }}/data"
+
+# UniFi application settings
+unifi_domain: "unifi.kerberos.fassbender.contact"
+unifi_port: 8443
+unifi_port_internal: 8443
+
+# Network ports (for device communication, STUN, etc.)
+unifi_device_port: 8080
+unifi_stun_port: 3478
+unifi_speedtest_port: 6789
+unifi_http_portal_port: 8880
+unifi_https_portal_port: 8843
+unifi_ap_discovery_port: 10001
+
+# Environment variables
+unifi_timezone: "Europe/Paris"
+unifi_log_level: "warn"
+
+# Reverse proxy settings
+unifi_published_server_url: "https://{{ unifi_domain }}"
+
+podman_network: "podman_bridge" # Network the container runs on
