@@ -19,7 +19,7 @@ services:
       - SIGNUPS_ALLOWED={{ vaultwarden_signups_allowed | lower }}
       - SHOW_PASSWORD_HINT={{ vaultwarden_show_password_hint | lower }}
       - DISABLE_ICON_DOWNLOAD={{ vaultwarden_disable_icon_download | lower }}
-      - ADMIN_TOKEN={{ vaultwarden_admin_token }}
+      #- ADMIN_TOKEN=YouRandomTokenHere
       # Domain configuration for reverse proxy
       - DOMAIN={{ vaultwarden_published_server_url }}
 {% if vaultwarden_smtp_enabled | default(false) %}

@@ -28,10 +28,6 @@ vaultwarden_show_password_hint: false
 vaultwarden_disable_icon_download: true
 vaultwarden_extended_logging: true
 
-# Admin token (should be overridden in inventory/host_vars)
-# Generate with: openssl rand -base64 32
-vaultwarden_admin_token: "ChangeMe-GenerateWithOpenssl"
-
 # SMTP configuration (optional, commented by default)
 # vaultwarden_smtp_enabled: false
 # vaultwarden_smtp_host: "smtp.example.com"
