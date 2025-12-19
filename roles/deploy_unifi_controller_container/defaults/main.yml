@@ -1,5 +1,17 @@
 ---
 # UniFi Controller service deployment configuration
+#------------------------------------------------------------------
+#------------------------------------------------------------------
+# After restoring a UniFi Controller backup, you may need to
+# SSH into all clients and execute the follwing command to
+# re-adopt them to the controller:
+#
+# set-inform http://<controller_ip>:8080/inform
+#
+# SSH credentials can be found in the UniFi Controller UI under
+# Settings -> search for SSH
+#------------------------------------------------------------------
+#------------------------------------------------------------------
 
 # Compose file settings
 unifi_project_name: unifi
