@@ -1,0 +1,120 @@
+---
+# Paperless-ngx service deployment
+
+# Create all required directories
+- name: Check if paperless directories exist
+  stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ paperless_repo_path }}"
+    - "{{ paperless_data_dir }}"
+    - "{{ paperless_media_dir }}"
+    - "{{ paperless_export_dir }}"
+    - "{{ paperless_consume_dir }}"
+    - "{{ paperless_scripts_dir }}"
+    - "{{ paperless_custom_init_dir }}"
+    - "{{ paperless_redis_dir }}"
+  register: paperless_dir_stats
+
+- name: Create paperless directories if missing
+  file:
+    path: "{{ item.item }}"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+  loop: "{{ paperless_dir_stats.results }}"
+  when: not item.stat.exists
+
+# Create the isolated network for paperless
+- name: Create isolated paperless network
+  command: podman network create {{ paperless_network }}
+  become: true
+  become_user: "{{ podman_user }}"
+  register: paperless_network_result
+  changed_when: "'Created' in paperless_network_result.stdout or 'already exists' not in paperless_network_result.stderr"
+  failed_when: paperless_network_result.rc != 0 and 'already exists' not in paperless_network_result.stderr
+  ignore_errors: true
+
+- name: Deploy paperless compose file
+  template:
+    src: compose_paperless.yml.j2
+    dest: "{{ paperless_repo_path }}/{{ paperless_compose_file }}"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+
+- name: Remove existing paperless containers if present
+  command: >
+    /usr/bin/podman-compose
+    -f {{ paperless_repo_path }}/{{ paperless_compose_file }}
+    --project-name {{ paperless_project_name }}
+    down --remove-orphans
+  become: true
+  become_user: "{{ podman_user }}"
+  changed_when: false
+  ignore_errors: true
+
+- name: Deploy paperless containers via docker-compose
+  command: >
+    podman-compose
+    -f {{ paperless_repo_path }}/{{ paperless_compose_file }}
+    --project-name {{ paperless_project_name }}
+    up -d
+  become: true
+  become_user: "{{ podman_user }}"
+  register: paperless_compose_result
+  changed_when: "'created' in paperless_compose_result.stdout or 'started' in paperless_compose_result.stdout"
+  until: paperless_compose_result.rc == 0
+
+# Wait for containers to be in running state
+- name: Wait for Paperless containers to start
+  command: podman ps --filter name=paperless --filter status=running --format='{% raw %}{{.Names}}{% endraw %}'
+  become: true
+  become_user: "{{ podman_user }}"
+  register: paperless_running
+  retries: 15
+  delay: 3
+  until: paperless_running.stdout_lines | length >= 4
+  changed_when: false
+
+- name: Get Paperless webserver container logs on failure
+  command: podman logs paperless-webserver
+  become: true
+  become_user: "{{ podman_user }}"
+  register: paperless_webserver_logs
+  changed_when: false
+  when: paperless_running.stdout_lines | length < 4
+
+- name: Get Redis container logs on failure
+  command: podman logs paperless-redis
+  become: true
+  become_user: "{{ podman_user }}"
+  register: paperless_redis_logs
+  changed_when: false
+  when: paperless_running.stdout_lines | length < 4
+
+- name: Fail if Paperless containers failed to start
+  fail:
+    msg: |
+      Paperless containers failed to start!
+      Running containers: {{ paperless_running.stdout_lines | join(', ') }}
+
+      Webserver logs:
+      {{ paperless_webserver_logs.stdout | default('Not available') }}
+
+      Redis logs:
+      {{ paperless_redis_logs.stdout | default('Not available') }}
+  when: paperless_running.stdout_lines | length < 4
+
+- name: Deploy nginx reverse proxy configuration
+  template:
+    src: paperless.conf.j2
+    dest: "/etc/nginx/conf.d/{{ paperless_domain }}.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: Reload nginx

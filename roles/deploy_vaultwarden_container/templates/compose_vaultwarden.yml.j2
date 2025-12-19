@@ -46,4 +46,4 @@ services:
 
 networks:
   {{ vaultwarden_network }}:
-    driver: {{ vaultwarden_network_driver }}
+    external: true

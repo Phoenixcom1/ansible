@@ -1,0 +1,103 @@
+version: "3.8"
+
+services:
+  broker:
+    image: docker.io/library/redis:7
+    container_name: paperless-redis
+    networks:
+      - {{ paperless_network }}
+    restart: unless-stopped
+    volumes:
+      - {{ paperless_redis_dir }}:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  webserver:
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    container_name: paperless-webserver
+    networks:
+      - {{ paperless_network }}
+    restart: unless-stopped
+    depends_on:
+      - broker
+    ports:
+      - "127.0.0.1:{{ paperless_port }}:{{ paperless_internal_port }}/tcp"
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "-S", "--max-time", "2", "http://localhost:{{ paperless_internal_port }}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    volumes:
+      - {{ paperless_data_dir }}:/usr/src/paperless/data
+      - {{ paperless_media_dir }}:/usr/src/paperless/media
+      - {{ paperless_export_dir }}:/usr/src/paperless/export
+      - {{ paperless_consume_dir }}:/usr/src/paperless/consume
+{% if paperless_scripts_dir is defined %}
+      - {{ paperless_scripts_dir }}:/usr/src/paperless/scripts
+{% endif %}
+{% if paperless_custom_init_dir is defined %}
+      - {{ paperless_custom_init_dir }}:/custom-cont-init.d:ro
+{% endif %}
+    environment:
+      # Timezone
+      - TZ={{ paperless_timezone }}
+      
+      # Redis configuration
+      - PAPERLESS_REDIS={{ paperless_redis_url }}
+      
+      # OCR settings
+      - PAPERLESS_OCR_LANGUAGE={{ paperless_ocr_language }}
+      - PAPERLESS_OCR_MODE={{ paperless_ocr_mode }}
+      
+      # Consumer settings
+      - PAPERLESS_CONSUMER_DELETE_DUPLICATES={{ paperless_consumer_delete_duplicates | lower }}
+      
+      # Tika integration
+      - PAPERLESS_TIKA_ENABLED={{ paperless_tika_enabled | int }}
+      - PAPERLESS_TIKA_GOTENBERG_ENDPOINT={{ paperless_tika_gotenberg_endpoint }}
+      - PAPERLESS_TIKA_ENDPOINT={{ paperless_tika_endpoint }}
+      
+      # URL configuration
+      #- PAPERLESS_URL=https://{{ paperless_domain }}
+{% if paperless_secret_key is defined %}
+      
+      # Secret key
+      - PAPERLESS_SECRET_KEY={{ paperless_secret_key }}
+{% endif %}
+{% if paperless_admin_user is defined %}
+      
+      # Admin user credentials
+      - PAPERLESS_ADMIN_USER={{ paperless_admin_user }}
+      - PAPERLESS_ADMIN_PASSWORD={{ paperless_admin_password }}
+      - PAPERLESS_ADMIN_MAIL={{ paperless_admin_mail }}
+{% endif %}
+
+  gotenberg:
+    image: docker.io/gotenberg/gotenberg:latest
+    container_name: paperless-gotenberg
+    networks:
+      - {{ paperless_network }}
+    restart: unless-stopped
+    command:
+      - "gotenberg"
+      - "--chromium-disable-javascript={{ gotenberg_chromium_disable_javascript | lower }}"
+      - "--chromium-allow-list={{ gotenberg_chromium_allow_list }}"
+      - "--libreoffice-disable-routes={{ gotenberg_libreoffice_disable_routes | lower }}"
+      - "--libreoffice-auto-start={{ gotenberg_libreoffice_auto_start | lower }}"
+      - "--libreoffice-start-timeout={{ gotenberg_libreoffice_start_timeout }}"
+      - "--api-timeout={{ gotenberg_api_timeout }}"
+
+  tika:
+    image: docker.io/apache/tika:latest
+    container_name: paperless-tika
+    networks:
+      - {{ paperless_network }}
+    restart: unless-stopped
+
+networks:
+  {{ paperless_network }}:
+    external: true
