@@ -42,39 +42,21 @@ services:
 {% if paperless_custom_init_dir is defined %}
       - {{ paperless_custom_init_dir }}:/custom-cont-init.d:ro
 {% endif %}
+    env_file: paperless.env
     environment:
-      # Timezone
-      - TZ={{ paperless_timezone }}
+      # URL configuration for CSRF protection
+      - PAPERLESS_URL=https://{{ paperless_domain }}
       
-      # Redis configuration
+      # Redis configuration (not in env file)
       - PAPERLESS_REDIS={{ paperless_redis_url }}
       
-      # OCR settings
-      - PAPERLESS_OCR_LANGUAGE={{ paperless_ocr_language }}
-      - PAPERLESS_OCR_MODE={{ paperless_ocr_mode }}
-      
-      # Consumer settings
-      - PAPERLESS_CONSUMER_DELETE_DUPLICATES={{ paperless_consumer_delete_duplicates | lower }}
-      
-      # Tika integration
+      # Tika integration (container-specific URLs)
       - PAPERLESS_TIKA_ENABLED={{ paperless_tika_enabled | int }}
       - PAPERLESS_TIKA_GOTENBERG_ENDPOINT={{ paperless_tika_gotenberg_endpoint }}
       - PAPERLESS_TIKA_ENDPOINT={{ paperless_tika_endpoint }}
       
-      # URL configuration
-      #- PAPERLESS_URL=https://{{ paperless_domain }}
-{% if paperless_secret_key is defined %}
-      
-      # Secret key
-      - PAPERLESS_SECRET_KEY={{ paperless_secret_key }}
-{% endif %}
-{% if paperless_admin_user is defined %}
-      
-      # Admin user credentials
-      - PAPERLESS_ADMIN_USER={{ paperless_admin_user }}
-      - PAPERLESS_ADMIN_PASSWORD={{ paperless_admin_password }}
-      - PAPERLESS_ADMIN_MAIL={{ paperless_admin_mail }}
-{% endif %}
+      # Consumer settings
+      - PAPERLESS_CONSUMER_DELETE_DUPLICATES={{ paperless_consumer_delete_duplicates | lower }}
 
   gotenberg:
     image: docker.io/gotenberg/gotenberg:latest

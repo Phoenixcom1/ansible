@@ -1,6 +1,16 @@
 ---
 # Paperless-ngx service deployment
 
+# Configure system settings for Redis
+- name: Enable memory overcommit for Redis
+  sysctl:
+    name: vm.overcommit_memory
+    value: "1"
+    state: present
+    sysctl_set: true
+    reload: true
+  become: true
+
 # Create all required directories
 - name: Check if paperless directories exist
   stat:
@@ -36,6 +46,60 @@
   changed_when: "'Created' in paperless_network_result.stdout or 'already exists' not in paperless_network_result.stderr"
   failed_when: paperless_network_result.rc != 0 and 'already exists' not in paperless_network_result.stderr
   ignore_errors: true
+
+# Check for environment file
+- name: Check if paperless.env file exists
+  stat:
+    path: "{{ paperless_env_file }}"
+  register: paperless_env_stat
+
+- name: Fail if paperless.env file is missing
+  fail:
+    msg: |
+      paperless.env file not found at {{ paperless_env_file }}
+      Please create this file with required environment variables before running this role.
+  when: not paperless_env_stat.stat.exists
+
+# Check for scripts .env file
+- name: Check if scripts/.env file exists
+  stat:
+    path: "{{ paperless_scripts_env_file }}"
+  register: paperless_scripts_env_stat
+
+- name: Warn if scripts/.env file is missing
+  debug:
+    msg: |
+      WARNING: scripts/.env file not found at {{ paperless_scripts_env_file }}
+      The link_email_docs.py script requires this file with PAPERLESS_URL and PAPERLESS_TOKEN.
+      Please create this file manually if you plan to use the email linking functionality.
+  when: not paperless_scripts_env_stat.stat.exists
+
+- name: Deploy custom init script
+  template:
+    src: 10-custom-init.sh.j2
+    dest: "{{ paperless_custom_init_dir }}/10-custom-init.sh"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+
+- name: Deploy post-consumption wrapper script
+  template:
+    src: post-consumption-wrapper.sh.j2
+    dest: "{{ paperless_scripts_dir }}/post-consumption-wrapper.sh"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+
+- name: Deploy link_email_docs.py script
+  template:
+    src: link_email_docs.py.j2
+    dest: "{{ paperless_scripts_dir }}/link_email_docs.py"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
 
 - name: Deploy paperless compose file
   template:

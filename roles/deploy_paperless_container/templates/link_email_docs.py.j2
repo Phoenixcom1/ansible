@@ -1,0 +1,129 @@
+#!/usr/local/bin python
+
+import os
+import asyncio
+import json
+from pypaperless import Paperless
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+PAPERLESS_URL = os.getenv("PAPERLESS_URL")
+PAPERLESS_TOKEN = os.getenv("PAPERLESS_TOKEN")
+
+# Needs to be adapted to individual Setup
+CONNECTED_DOCUMENT_FIELD_ID = {{ paperless_connected_document_field_id | default(1) }}
+TASK_ID_CUSTOM_FIELD_ID = {{ paperless_task_id_custom_field_id | default(3) }}
+
+GMX_INPUT_TAG_ID = {{ paperless_gmx_input_tag_id | default(9) }}
+SHARED_GMAIL_INPUT_TAG_ID = {{ paperless_shared_gmail_input_tag_id | default(3) }}
+EMAIL_INPUTS = [GMX_INPUT_TAG_ID, SHARED_GMAIL_INPUT_TAG_ID]
+
+
+# Get Document ID via env variable
+document_id = os.environ.get("DOCUMENT_ID")
+task_id = os.environ.get("TASK_ID")
+print(f"Processing task_id: '{task_id}' document '{document_id}'")
+
+# Visit the following link to read more about filters
+# https://github.com/tb1337/paperless-api/blob/main/docs/usage.md#iterating-over-resource-items
+# filter for document with custom field TASK_ID_CUSTOM_FIELD_ID equals task_id
+filters = {
+    "custom_field_query": json.dumps(
+        ["OR", [[TASK_ID_CUSTOM_FIELD_ID, "exact", task_id]]]
+    )
+}
+
+paperless = Paperless(PAPERLESS_URL, PAPERLESS_TOKEN)
+
+
+async def update_document(doc):
+    try:
+        await doc.update()
+        print(f"Document saved: {doc.id}")
+    except Exception as e:
+        print(f"Error saving document: {e, doc.id}")
+
+
+def update_list_type_field(doc, field_id, value):
+    print(f"Updating doc: '{doc.id}' connected doc field with '{value}'")
+    found = False
+    for custom_field in doc.custom_fields:
+        if custom_field.field == field_id:
+            found = True
+            # check if the custom field contains the value already
+            if custom_field.value is None:
+                custom_field.value = [value]
+                print(f"Field was empty, added '{value}'")
+            elif isinstance(custom_field.value, list):
+                if value not in custom_field.value:
+                    custom_field.value.append(value)
+                    print(f"Updated connected doc field by '{value}'")
+                else:
+                    print(f"Connected doc field already holds '{value}'")
+            else:
+                print("Error: Connected doc field is not a list")
+            break
+    if not found:
+        doc.custom_fields.append({"field": field_id, "value": [value]})
+        print(f"Appended new connected doc field with '{value}'")
+
+
+def update_string_type_field(doc, field_id, value):
+    print(f"Updating doc: '{doc.id}' connected doc field with '{value}'")
+    found = False
+    for custom_field in doc.custom_fields:
+        if custom_field.field == field_id:
+            found = True
+            custom_field.value = value
+            print(f"Updated connected doc field by '{value}'")
+    if not found:
+        doc.custom_fields.append({"field": field_id, "value": value})
+        print(f"Appended new connected doc field with '{value}'")
+
+
+async def main():
+    async with paperless:
+        current_doc = await paperless.documents(document_id)
+
+        # check if input is email
+        if any(tag in current_doc.tags for tag in EMAIL_INPUTS):
+            print(f"Document '{current_doc.id}' '{current_doc.title}' "
+                  f"is email input, processing")
+        else:
+            print(f"Document '{current_doc.id}' '{current_doc.title}' "
+                  f"is not an email iput, skipping")
+            exit(0)
+
+        update_string_type_field(current_doc, TASK_ID_CUSTOM_FIELD_ID, task_id)
+        await update_document(current_doc)
+
+        # Look up all document with the same task_id
+        async with paperless.documents.reduce(**filters) as relatedDocs:
+            async for related_doc in relatedDocs:
+                print(f"Related Document '{related_doc.id}' "
+                      f"Name: '{related_doc.title}'")
+
+                # Ensure we are not linking the document to itself
+                if related_doc.id == current_doc.id:
+                    print(f"Skipping linking document to itself: "
+                          f"'{related_doc.id}'")
+                    continue
+
+                update_list_type_field(
+                    current_doc,
+                    CONNECTED_DOCUMENT_FIELD_ID,
+                    related_doc.id
+                )
+                await update_document(current_doc)
+
+                update_list_type_field(
+                    related_doc,
+                    CONNECTED_DOCUMENT_FIELD_ID,
+                    current_doc.id
+                )
+                await update_document(related_doc)
+
+if __name__ == "__main__":
+    asyncio.run(main())

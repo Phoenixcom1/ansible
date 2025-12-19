@@ -1,0 +1,26 @@
+#!/bin/sh
+echo "Initializing Paperless-NGX custom dependencies..."
+
+# Function to check if a Python package is installed
+is_installed() {
+    python3 -c "import $1" 2>/dev/null
+    return $?
+}
+
+# Install pypaperless if not already installed
+if ! is_installed "pypaperless"; then
+    echo "Installing pypaperless..."
+    pip install --no-cache-dir pypaperless
+else
+    echo "pypaperless already installed, skipping."
+fi
+
+# Install python-dotenv if not already installed
+if ! is_installed "dotenv"; then
+    echo "Installing python-dotenv..."
+    pip install --no-cache-dir python-dotenv
+else
+    echo "python-dotenv already installed, skipping."
+fi
+
+echo "Custom initialization complete."
