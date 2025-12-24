@@ -1,5 +1,4 @@
 - hosts: all
-  become: true
   # Leaving those empty causes issues e.g. when pulling container images.
   # environment:
   #   http_proxy:
@@ -12,7 +11,7 @@
   #     confirm: true
 
   roles:
-    #- common
+    - common
     #- local-user
     #- qemu-guest-agent
     #- podman
@@ -22,6 +21,6 @@
     - podman-compose-deploy
     #- deploy_homepage_container
     #- deploy_jellyfin_container
-    - deploy_vaultwarden_container
+    #- deploy_vaultwarden_container
     #- deploy_unifi_controller_container
     - deploy_paperless_container

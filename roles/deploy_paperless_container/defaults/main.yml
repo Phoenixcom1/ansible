@@ -22,6 +22,16 @@ paperless_scripts_dir: "{{ podman_service_dir }}/{{ paperless_project_name }}/sc
 paperless_custom_init_dir: "{{ podman_service_dir }}/{{ paperless_project_name }}/custom-cont-init.d"
 paperless_redis_dir: "{{ podman_service_dir }}/{{ paperless_project_name }}/redisdata"
 
+# Network mount configuration for consume directory
+paperless_enable_network_mount: true
+paperless_network_mount_source: "//datenbunker.local/Paperless/Consume"
+paperless_network_mount_type: "cifs"
+# NOTE: paperless_host_uid and paperless_host_gid are calculated dynamically in tasks
+# based on the podman user's subordinate UID range from /etc/subuid
+# This ensures proper UID mapping for rootless podman user namespaces
+paperless_network_mount_options: "vers=3.1.1,_netdev,credentials={{ paperless_smbcredentials_file }},uid={{ paperless_host_uid }},gid={{ paperless_host_gid }},file_mode=0664,dir_mode=0775,rw"
+paperless_smbcredentials_file: "/root/.paperless_smbcreds"
+
 # Network configuration (isolated from other containers)
 paperless_network: paperless_net
 paperless_network_driver: bridge

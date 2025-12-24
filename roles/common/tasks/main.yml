@@ -79,3 +79,32 @@
   debug:
     msg: ".smbcredentials file not found on controller - skipping copy"
   when: not smbcreds_controller.stat.exists
+
+- name: Check if .smbcredentials exists on controller
+  stat:
+    path: "{{ lookup('env', 'HOME') }}/.paperless_smbcreds"
+  register: smbcreds_controller
+  delegate_to: localhost
+  become: false
+  changed_when: false
+
+- name: Copy .smbcredentials file to target root home
+  ansible.builtin.copy:
+    src: "{{ lookup('env', 'HOME') }}/.paperless_smbcreds"
+    dest: /root/.paperless_smbcreds
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  when: smbcreds_controller.stat.exists
+  register: smbcreds_copied
+
+- name: Display SMB credentials copy status
+  debug:
+    msg: ".paperless_smbcreds file copied to /root/.paperless_smbcreds"
+  when: smbcreds_copied.changed
+
+- name: Display SMB credentials not found message
+  debug:
+    msg: ".paperless_smbcreds file not found on controller - skipping copy"
+  when: not smbcreds_controller.stat.exists

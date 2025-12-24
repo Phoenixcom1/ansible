@@ -1,6 +1,104 @@
 ---
 # Paperless-ngx service deployment
 
+# Discover podman user's UID and GID
+- name: Get podman user info
+  getent:
+    database: passwd
+    key: "{{ podman_user }}"
+  register: podman_user_info
+  changed_when: false
+
+- name: Extract podman user UID and GID
+  set_fact:
+    paperless_uid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][1] }}"
+    paperless_gid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][2] }}"
+  when: podman_user in podman_user_info.ansible_facts.getent_passwd
+
+- name: Display discovered podman user UID and GID
+  debug:
+    msg: "Podman user '{{ podman_user }}' has UID={{ paperless_uid }} GID={{ paperless_gid }}"
+
+# Get the subordinate UID mapping for user namespace calculation
+- name: Check if /etc/subuid exists
+  stat:
+    path: /etc/subuid
+  register: subuid_file
+
+- name: Read /etc/subuid content for debugging
+  command: cat /etc/subuid
+  register: subuid_content
+  changed_when: false
+  check_mode: false
+  when: subuid_file.stat.exists
+
+- name: Display /etc/subuid content
+  debug:
+    msg: "{{ subuid_content.stdout_lines }}"
+  when: subuid_file.stat.exists
+
+- name: Get subordinate UID range for podman user
+  shell: "awk -F: '/^{{ podman_user }}:/ {print $2}' /etc/subuid"
+  register: subuid_start
+  changed_when: false
+  check_mode: false
+
+- name: Debug subuid lookup
+  debug:
+    msg: "subuid_start raw output: '{{ subuid_start.stdout }}' (length: {{ subuid_start.stdout | length }})"
+
+- name: Calculate host UID that maps to container paperless user (UID 1000)
+  set_fact:
+    # Container UID 1000 maps to: subuid_start + (1000 - 1)
+    paperless_host_uid: "{{ (subuid_start.stdout | default('0') | int) + 999 }}"
+    paperless_host_gid: "{{ (subuid_start.stdout | default('0') | int) + 999 }}"
+  when: subuid_start.stdout | length > 0
+
+- name: Fail if subordinate UID range not found
+  fail:
+    msg: "Could not find subordinate UID range for user '{{ podman_user }}' in /etc/subuid"
+  when: subuid_start.stdout | length == 0
+
+- name: Display calculated SMB mount UID/GID
+  debug:
+    msg: |
+      User namespace mapping:
+        Container UID 0 → Host UID {{ paperless_uid }}
+        Container UID 1+ → Host UID {{ subuid_start.stdout }}+
+        Container UID 1000 (paperless) → Host UID {{ paperless_host_uid }}
+      SMB mount will use host UID={{ paperless_host_uid }} GID={{ paperless_host_gid }}
+
+# Network mount setup for consume directory
+- name: Install CIFS utilities if using SMB mount
+  apt:
+    name: cifs-utils
+    state: present
+    update_cache: yes
+  become: true
+  when: paperless_enable_network_mount and paperless_network_mount_type == "cifs"
+
+- name: Create consume mount directory
+  file:
+    path: "{{ paperless_consume_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+#SMB Creds are copied in common role
+- name: Mount network consume directory (and persist to fstab)
+  mount:
+    path: "{{ paperless_consume_dir }}"
+    src: "{{ paperless_network_mount_source }}"
+    fstype: "{{ paperless_network_mount_type }}"
+    opts: "{{ paperless_network_mount_options }}"
+    state: mounted
+    dump: 0
+    passno: 0
+  become: true
+  when: paperless_enable_network_mount
+
 # Configure system settings for Redis
 - name: Enable memory overcommit for Redis
   sysctl:
@@ -11,7 +109,7 @@
     reload: true
   become: true
 
-# Create all required directories
+# Create all required directories (excluding consume dir which is network mounted)
 - name: Check if paperless directories exist
   stat:
     path: "{{ item }}"
@@ -20,7 +118,6 @@
     - "{{ paperless_data_dir }}"
     - "{{ paperless_media_dir }}"
     - "{{ paperless_export_dir }}"
-    - "{{ paperless_consume_dir }}"
     - "{{ paperless_scripts_dir }}"
     - "{{ paperless_custom_init_dir }}"
     - "{{ paperless_redis_dir }}"
