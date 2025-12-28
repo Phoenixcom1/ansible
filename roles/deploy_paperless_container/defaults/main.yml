@@ -51,6 +51,13 @@ paperless_tika_enabled: true
 paperless_tika_gotenberg_endpoint: "http://gotenberg:3000"
 paperless_tika_endpoint: "http://tika:9998"
 
+# Consumer polling for network mounts
+# inotify doesn't work on CIFS/SMB mounts, so polling is required
+# Set to 1 when using network mounts, 0 for local directories
+paperless_consumer_polling: "{{ 1 if paperless_enable_network_mount else 0 }}"
+# Polling interval in seconds (how often to check for new files)
+paperless_consumer_polling_delay: 5
+
 # Custom script configuration for link_email_docs.py
 paperless_connected_document_field_id: 1
 paperless_task_id_custom_field_id: 3

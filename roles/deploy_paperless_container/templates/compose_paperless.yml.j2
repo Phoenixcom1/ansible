@@ -57,6 +57,9 @@ services:
       
       # Consumer settings
       - PAPERLESS_CONSUMER_DELETE_DUPLICATES={{ paperless_consumer_delete_duplicates | lower }}
+      # Enable polling for network mounts (inotify doesn't work on CIFS/SMB)
+      - PAPERLESS_CONSUMER_POLLING={{ paperless_consumer_polling | default(0) | int }}
+      - PAPERLESS_CONSUMER_POLLING_DELAY={{ paperless_consumer_polling_delay | default(5) | int }}
 
   gotenberg:
     image: docker.io/gotenberg/gotenberg:latest
