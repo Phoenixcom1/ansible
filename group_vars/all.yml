@@ -1,0 +1,6 @@
+---
+# Global variables available to all hosts and roles
+
+# Podman user configuration (shared across all container deployment roles)
+podman_username: podman
+podman_service_dir: /opt/podman

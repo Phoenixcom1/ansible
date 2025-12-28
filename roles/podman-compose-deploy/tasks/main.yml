@@ -55,6 +55,7 @@
   stat:
     path: "{{ podman_service_dir }}"
   register: podman_service_stat
+  become: true
 
 - name: Create podman service directory if missing
   file:

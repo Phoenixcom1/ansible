@@ -1,0 +1,95 @@
+---
+# Frigate NVR service deployment
+
+# Create project directories
+- name: Create frigate repo directory
+  file:
+    path: "{{ frigate_repo_path }}"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+
+- name: Create frigate config directory
+  file:
+    path: "{{ frigate_config_dir }}"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+
+- name: Create frigate media directory
+  file:
+    path: "{{ frigate_media_dir }}"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+
+# Deploy nginx reverse proxy configuration
+- name: Deploy frigate nginx configuration
+  template:
+    src: frigate.conf.j2
+    dest: /etc/nginx/sites-available/frigate.conf
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: Reload nginx
+
+- name: Enable frigate nginx site
+  file:
+    src: /etc/nginx/sites-available/frigate.conf
+    dest: /etc/nginx/sites-enabled/frigate.conf
+    state: link
+  become: true
+  notify: Reload nginx
+
+# Template the compose file
+- name: Template frigate compose file
+  template:
+    src: "{{ frigate_compose_template }}"
+    dest: "{{ frigate_repo_path }}/{{ frigate_compose_file }}"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+
+# Stop existing frigate services
+- name: Remove existing frigate containers if present
+  command: >
+    /usr/bin/podman-compose
+    -f {{ frigate_repo_path }}/{{ frigate_compose_file }}
+    --project-name {{ frigate_project_name }}
+    down --remove-orphans
+  become: true
+  become_user: "{{ podman_user }}"
+  changed_when: false
+  ignore_errors: true
+
+# Start frigate service
+- name: Deploy frigate container via podman-compose
+  command: >
+    podman-compose
+    -f {{ frigate_repo_path }}/{{ frigate_compose_file }}
+    --project-name {{ frigate_project_name }}
+    up -d
+  become: true
+  become_user: "{{ podman_user }}"
+  register: frigate_compose_result
+  changed_when: "'created' in frigate_compose_result.stdout or 'started' in frigate_compose_result.stdout"
+  until: frigate_compose_result.rc == 0
+
+# Wait for frigate to be ready
+- name: Wait for frigate to be ready
+  uri:
+    url: "http://localhost:{{ frigate_port }}/api/version"
+    status_code: 200
+  register: result
+  until: result.status == 200
+  retries: 15
+  delay: 2
+  ignore_errors: true

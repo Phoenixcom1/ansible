@@ -1,0 +1,41 @@
+---
+# Frigate NVR Container Configuration
+#
+# PRIVILEGED MODE EXPLANATION:
+# Frigate requires privileged mode for several reasons:
+# 1. Hardware Access: Direct access to GPU/video devices for hardware acceleration
+#    (Intel Quick Sync, NVIDIA, etc.) even when devices aren't currently passed through
+# 2. System Resources: Access to /dev/shm for shared memory between processes
+# 3. Process Management: Ability to manage child processes (ffmpeg, detector processes)
+#    and set process priorities/nice values for performance optimization
+# 4. Future-proofing: Allows adding hardware acceleration devices later without
+#    reconfiguring container security settings
+#
+# Note: In rootless Podman, "privileged" means privileged within the user namespace,
+# not true root privileges on the host system. This provides better security than
+# traditional Docker privileged containers.
+
+services:
+  frigate:
+    container_name: frigate
+    privileged: true
+    restart: unless-stopped
+    stop_grace_period: {{ frigate_stop_grace_period }}
+    image: ghcr.io/blakeblackshear/frigate:stable
+    shm_size: "{{ frigate_shm_size }}"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - {{ frigate_config_dir }}:/config
+      - {{ frigate_media_dir }}:/media/frigate
+      - type: tmpfs
+        target: /tmp/cache
+        tmpfs:
+          size: {{ frigate_tmpfs_size }}
+    ports:
+      - "127.0.0.1:{{ frigate_port }}:{{ frigate_internal_port }}"  # Web UI - localhost only (via nginx)
+      - "{{ frigate_rtsp_port }}:8554"  # RTSP feeds - available to network
+      - "{{ frigate_webrtc_tcp_port }}:8555/tcp"  # WebRTC TCP - available to network
+      - "{{ frigate_webrtc_udp_port }}:8555/udp"  # WebRTC UDP - available to network
+    environment:
+      FRIGATE_RTSP_PASSWORD: "{{ frigate_rtsp_password }}"
+      FRIGATE_ALLOWED_HOSTS: "{{ frigate_domain }}"

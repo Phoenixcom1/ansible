@@ -1,0 +1,7 @@
+---
+# Handlers for frigate service
+- name: Reload nginx
+  systemd:
+    name: nginx
+    state: reloaded
+  become: true
