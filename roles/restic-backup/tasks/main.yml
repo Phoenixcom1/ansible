@@ -1,0 +1,180 @@
+---
+# Restic backup setup for Podman containers
+
+# Install restic
+- name: Install restic
+  apt:
+    name: restic
+    state: present
+    update_cache: yes
+  become: true
+
+# Mount NAS if enabled
+- name: Install CIFS utilities for NAS mount
+  apt:
+    name: cifs-utils
+    state: present
+  become: true
+  when: restic_nas_enabled
+
+- name: Create NAS mount point directory
+  file:
+    path: "{{ restic_nas_mount_point }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  become: true
+  when: restic_nas_enabled
+
+- name: Mount NAS backup directory
+  mount:
+    path: "{{ restic_nas_mount_point }}"
+    src: "{{ restic_nas_source }}"
+    fstype: cifs
+    opts: "{{ restic_nas_mount_options }}"
+    state: mounted
+    dump: 0
+    passno: 0
+  become: true
+  when: restic_nas_enabled
+
+- name: Wait for NAS mount to be available
+  wait_for:
+    path: "{{ restic_nas_mount_point }}"
+    state: present
+    timeout: 30
+  when: restic_nas_enabled
+
+# Setup restic password
+- name: Check if restic password file exists
+  stat:
+    path: "{{ restic_password_file }}"
+  register: restic_password_stat
+  become: true
+
+- name: Generate random restic password if not exists
+  set_fact:
+    generated_restic_password: "{{ lookup('password', '/dev/null length=32 chars=ascii_letters,digits') }}"
+  when: not restic_password_stat.stat.exists
+  no_log: true
+
+- name: Create restic password file
+  copy:
+    content: "{{ restic_password | default(generated_restic_password) }}"
+    dest: "{{ restic_password_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  when: not restic_password_stat.stat.exists
+  no_log: true
+
+- name: Display password file creation message
+  debug:
+    msg: |
+      Restic password file created at {{ restic_password_file }}
+      IMPORTANT: Save this password securely! You'll need it to restore backups.
+  when: not restic_password_stat.stat.exists
+
+# Create scripts directory
+- name: Create scripts directory
+  file:
+    path: /opt/scripts
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+# Deploy backup script
+- name: Deploy restic backup script
+  template:
+    src: restic-backup.sh.j2
+    dest: /opt/scripts/restic-backup.sh
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+# Setup systemd service and timer
+- name: Deploy restic backup systemd service
+  template:
+    src: restic-backup.service.j2
+    dest: /etc/systemd/system/restic-backup.service
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: restic_service
+
+- name: Deploy restic backup systemd timer
+  template:
+    src: restic-backup.timer.j2
+    dest: /etc/systemd/system/restic-backup.timer
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: restic_timer
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+  become: true
+  when: restic_service.changed or restic_timer.changed
+
+- name: Enable and start restic backup timer
+  systemd:
+    name: restic-backup.timer
+    enabled: yes
+    state: started
+  become: true
+
+# Create log file
+- name: Create restic backup log file
+  file:
+    path: /var/log/restic-backup.log
+    state: touch
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  changed_when: false
+
+# Display status
+- name: Get timer status
+  command: systemctl status restic-backup.timer
+  register: timer_status
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Display backup setup summary
+  debug:
+    msg: |
+      ================================================
+      Restic Backup Setup Complete
+      ================================================
+      Repository: {{ restic_repository }}
+      Password file: {{ restic_password_file }}
+      Backup schedule: {{ restic_backup_time }}
+
+      Services configured for backup:
+      {% for service_name, service_config in restic_backup_services.items() %}
+      {% if service_config.enabled %}
+      - {{ service_name }}: {{ service_config.paths | join(', ') }}
+      {% endif %}
+      {% endfor %}
+
+      Retention policy:
+      - Daily: {{ restic_keep_daily }}
+      - Weekly: {{ restic_keep_weekly }}
+      - Monthly: {{ restic_keep_monthly }}
+
+      Next steps:
+      1. Test backup manually: sudo systemctl start restic-backup.service
+      2. Check logs: sudo journalctl -u restic-backup.service -f
+      3. View backup log: sudo tail -f /var/log/restic-backup.log
+      4. List snapshots: sudo restic -r {{ restic_repository }} snapshots
+      ================================================

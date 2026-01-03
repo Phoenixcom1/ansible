@@ -1,0 +1,26 @@
+[Unit]
+Description=Restic backup for Podman containers
+After=network-online.target
+Wants=network-online.target
+{% if restic_nas_enabled %}
+After=mnt-backup.mount
+Requires=mnt-backup.mount
+{% endif %}
+
+[Service]
+Type=oneshot
+ExecStart=/opt/scripts/restic-backup.sh
+User=root
+Group=root
+
+# Security settings
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=restic-backup
+
+# Timeout (2 hours max)
+TimeoutStartSec=7200

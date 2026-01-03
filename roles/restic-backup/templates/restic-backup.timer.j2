@@ -1,0 +1,14 @@
+[Unit]
+Description=Daily Restic backup timer
+Requires=restic-backup.service
+
+[Timer]
+# Run daily at configured time
+OnCalendar={{ restic_backup_time }}
+Persistent=true
+
+# Run 5 minutes after boot if missed
+OnBootSec=5min
+
+[Install]
+WantedBy=timers.target

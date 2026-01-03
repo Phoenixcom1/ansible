@@ -63,12 +63,20 @@ if id "ansible" &>/dev/null; then
 else
     echo "Creating user 'ansible'..."
     # -m flag creates home directory if it does not exist
-    useradd -m ansible
+    # -s flag sets the shell to bash
+    useradd -m -s /bin/bash ansible
     if [ $? -ne 0 ]; then
       echo "Failed to create user 'ansible'. Exiting."
       exit 1
     fi
-    echo "User 'ansible' created successfully."
+    echo "User 'ansible' created successfully with bash shell."
+fi
+
+# Ensure ansible user has bash shell (in case user already existed)
+echo "Ensuring ansible user has bash shell..."
+usermod -s /bin/bash ansible
+if [ $? -ne 0 ]; then
+  echo "Warning: Failed to set bash shell for ansible user."
 fi
 
 # --- Step 4: Add 'ansible' user to sudo group ---
