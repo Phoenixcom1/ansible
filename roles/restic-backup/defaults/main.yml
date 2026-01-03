@@ -20,6 +20,14 @@ restic_backup_services:
     excludes:
       - "*.log"
 
+  unifi:
+    enabled: true
+    paths:
+      - "{{ podman_service_dir }}/unifi"
+    excludes:
+      - "*/logs/*"
+      - "*.log"
+
 # Global excludes (applied to all backups)
 restic_global_excludes:
   - "*/cache/*"

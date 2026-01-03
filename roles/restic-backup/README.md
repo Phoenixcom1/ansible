@@ -39,6 +39,13 @@ restic_backup_services:
     paths:
       - "{{ podman_service_dir }}/homepage"
 
+  unifi:
+    enabled: true
+    paths:
+      - "{{ podman_service_dir }}/unifi"
+    excludes:
+      - "*/logs/*"
+
   paperless:
     enabled: true
     paths:
