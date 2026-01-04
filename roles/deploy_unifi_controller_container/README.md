@@ -42,10 +42,30 @@ ansible-playbook -i inventory/01-lab.yml noble_base.yml -l docker-vm
 UniFi Controller creates automatic backups internally:
 
 - **Location**: `/opt/podman/unifi/data/backup/autobackup/`
-- **Frequency**: Configurable in UniFi Settings → System → Backup
-- **Retention**: Configurable (default: keep recent backups)
+- **Frequency**: Configured to **daily** (adjusted in UniFi Settings → System → Backup)
+- **Timing**: Daily before 2:00 AM (before Restic backup runs)
+- **Format**: `.unf` files (complete UniFi configuration snapshots)
 
-The entire `/opt/podman/unifi` directory is backed up by Restic (if configured).
+### Restic Backup Integration
+
+The Restic backup system backs up **only the autobackup folder**, not the live database:
+
+- **What's backed up**: `/opt/podman/unifi/data/backup/autobackup/*.unf` files
+- **Why this approach**: UniFi's autobackups are already complete snapshots, no need to backup live MongoDB database
+- **Retention**: Follows Restic retention policy (7 daily, 4 weekly, 12 monthly)
+- **Schedule**: Restic runs daily at 2:00 AM, backing up the previous day's autobackup
+
+**Benefits:**
+- ✅ No live database backup needed (reduces backup size and complexity)
+- ✅ UniFi autobackups are consistent snapshots
+- ✅ Restic deduplication works efficiently on stable `.unf` files
+- ✅ Long-term retention via Restic (7 daily, 4 weekly, 12 monthly)
+
+**Configuration:**
+Make sure UniFi is configured to create daily backups:
+1. Open UniFi Controller → Settings → System → Maintenance
+2. Set "Auto Backup" to "Daily"
+3. Keep retention at desired number of days (internal cleanup)
 
 ### Manual Backup
 

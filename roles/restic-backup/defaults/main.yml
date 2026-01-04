@@ -22,10 +22,11 @@ restic_backup_services:
 
   unifi:
     enabled: true
+    # Strategy: Backup only UniFi's built-in autobackup files
+    # UniFi creates .unf backup files automatically, no need for live DB backup
     paths:
-      - "{{ podman_service_dir }}/unifi"
+      - "{{ podman_service_dir }}/unifi/data/backup/autobackup"
     excludes:
-      - "*/logs/*"
       - "*.log"
 
   paperless:
