@@ -74,6 +74,22 @@ restic_backup_services:
       - "*/log/*" # Log files
       - "*.log"
 
+  frigate:
+    enabled: true
+    # Strategy: Stop container before backup (SQLite database)
+    stop_before_backup: true
+    compose_file: "{{ podman_service_dir }}/frigate/compose_frigate.yml"
+    project_name: frigate
+    paths:
+      - "{{ podman_service_dir }}/frigate/config"
+      # Optional: backup recent recordings (comment out if too large)
+      #- "{{ podman_service_dir }}/frigate/media"
+    excludes:
+      - "*/clips/*" # Event clips - can be large, optionally backup separately
+      - "*/recordings/*" # Continuous recordings - very large, usually backed up elsewhere
+      - "*/cache/*" # Thumbnail cache - regenerated
+      - "*.log"
+
 # Global excludes (applied to all backups)
 restic_global_excludes:
   - "*/cache/*"

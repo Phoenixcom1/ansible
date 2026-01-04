@@ -132,6 +132,24 @@ vaultwarden:
 | UniFi       | File backup         | Built-in auto-backups, can run live    |
 | Homepage    | File backup         | Static config files, no database       |
 
+## Services Backed Up
+
+Complete overview of all configured services:
+
+| Service         | Strategy          | Downtime | Database Type | Why This Approach?                     |
+| --------------- | ----------------- | -------- | ------------- | -------------------------------------- |
+| **Homepage**    | Live backup       | None     | None          | Static config files only               |
+| **UniFi**       | Live backup       | None     | MongoDB       | Has built-in auto-backups              |
+| **Paperless**   | Document exporter | None     | SQLite        | App-level export ensures consistency   |
+| **Vaultwarden** | Stop compose      | ~5s      | SQLite        | Passwords require zero corruption risk |
+| **Jellyfin**    | Stop compose      | ~5s      | SQLite        | Media library database                 |
+| **Frigate**     | Stop compose      | ~5s      | SQLite        | Camera events and detection data       |
+
+**Total downtime during backup**: ~15 seconds (services with `stop_before_backup` run simultaneously at 2:00 AM)
+
+**Backup schedule**: Daily at 2:00 AM  
+**Retention**: 7 daily, 4 weekly, 12 monthly snapshots
+
 ## Usage
 
 ### Deploy with Ansible
