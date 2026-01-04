@@ -60,6 +60,20 @@ restic_backup_services:
       - "*.log"
       - "*/icon_cache/*" # Website icons - can be re-downloaded
 
+  jellyfin:
+    enabled: true
+    # Strategy: Stop container before backup (SQLite database)
+    stop_before_backup: true
+    compose_file: "{{ podman_service_dir }}/jellyfin/compose_jellyfin.yml"
+    project_name: jellyfin
+    paths:
+      - "{{ podman_service_dir }}/jellyfin/config"
+    excludes:
+      - "*/cache/*" # Transcoding cache - regenerated
+      - "*/transcodes/*" # Temporary transcodes
+      - "*/log/*" # Log files
+      - "*.log"
+
 # Global excludes (applied to all backups)
 restic_global_excludes:
   - "*/cache/*"
