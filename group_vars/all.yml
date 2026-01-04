@@ -4,3 +4,8 @@
 # Podman user configuration (shared across all container deployment roles)
 podman_username: podman
 podman_service_dir: /opt/podman
+
+# SSL certificate paths (used by nginx reverse proxy for all services)
+# Wildcard certificate locations deployed by your firewall
+ssl_cert: "/etc/ssl/wildcard/kerberos.fassbender.contact/fullchain.pem"
+ssl_key: "/etc/ssl/wildcard/kerberos.fassbender.contact/key.pem"

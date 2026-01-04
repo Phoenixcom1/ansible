@@ -56,6 +56,7 @@ The Restic backup system backs up **only the autobackup folder**, not the live d
 - **Schedule**: Restic runs daily at 2:00 AM, backing up the previous day's autobackup
 
 **Benefits:**
+
 - ✅ No live database backup needed (reduces backup size and complexity)
 - ✅ UniFi autobackups are consistent snapshots
 - ✅ Restic deduplication works efficiently on stable `.unf` files
@@ -63,6 +64,7 @@ The Restic backup system backs up **only the autobackup folder**, not the live d
 
 **Configuration:**
 Make sure UniFi is configured to create daily backups:
+
 1. Open UniFi Controller → Settings → System → Maintenance
 2. Set "Auto Backup" to "Daily"
 3. Keep retention at desired number of days (internal cleanup)

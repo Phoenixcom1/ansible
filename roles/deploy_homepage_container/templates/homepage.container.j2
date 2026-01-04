@@ -1,0 +1,37 @@
+# homepage.container
+# Managed by Ansible - Podman Quadlet for Homepage container
+# https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html
+
+[Unit]
+Description=Homepage Dashboard Container
+Documentation=https://gethomepage.dev/
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=ghcr.io/gethomepage/homepage:latest
+AutoUpdate=registry
+ContainerName=homepage
+
+# Network
+Network={{ podman_network }}
+PublishPort=127.0.0.1:3000:3000
+
+# Volumes
+Volume={{ homepage_config_dir }}:/app/config:Z
+
+# Environment
+Environment=HOMEPAGE_ALLOWED_HOSTS={{ homepage_allowed_hosts }}
+EnvironmentFile={{ homepage_config_dir }}/.env
+
+# User/Security
+UserNS=keep-id
+User={{ podman_user_uid }}:{{ podman_user_gid }}
+AddCapability=NET_RAW
+
+[Service]
+Restart=always
+TimeoutStopSec=70
+
+[Install]
+WantedBy=default.target
