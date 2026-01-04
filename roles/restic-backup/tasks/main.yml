@@ -97,6 +97,16 @@
     mode: "0755"
   become: true
 
+# Deploy test script
+# - name: Deploy restic backup test script
+#   template:
+#     src: restic-backup-test.sh.j2
+#     dest: /opt/scripts/restic-backup-test.sh
+#     owner: root
+#     group: root
+#     mode: "0755"
+#   become: true
+
 # Setup systemd service and timer
 - name: Deploy restic backup systemd service
   template:

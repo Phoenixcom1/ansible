@@ -84,6 +84,54 @@ su - podman -c "podman exec paperless-webserver document_exporter /usr/src/paper
 
 **Note:** If Paperless container is not running, the script continues with file backup only.
 
+### Container Stop for Database Safety
+
+Services with `stop_before_backup: true` are stopped before backup using `podman-compose`:
+
+```yaml
+vaultwarden:
+  enabled: true
+  stop_before_backup: true
+  compose_file: "{{ podman_service_dir }}/vaultwarden/compose_vaultwarden.yml"
+  project_name: vaultwarden
+  paths:
+    - "{{ podman_service_dir }}/vaultwarden/data"
+```
+
+**What this does:**
+
+1. Runs `podman-compose down` to stop the entire stack
+2. Backs up all data while containers are stopped
+3. Runs `podman-compose up -d` to restart the stack
+
+**Why use compose instead of individual container stop?**
+
+- **Proper dependency handling**: Compose stops containers in correct order
+- **Network management**: Networks are preserved/recreated correctly
+- **Multi-container stacks**: Handles services with multiple containers
+- **Future-proof**: Works with current compose setup, easy to migrate to systemd units
+
+**When to use this strategy:**
+
+- Services with SQLite databases (Vaultwarden, potentially paperless)
+- Critical data requiring zero corruption risk (passwords, financial data)
+- Services without built-in export tools
+
+**Downtime considerations:**
+
+- Typical stop time: 5-10 seconds
+- Backup window: 2:00 AM (minimal user impact)
+- Compose restart is faster than individual container starts
+
+**Alternative approaches by service type:**
+
+| Service     | Strategy            | Reason                                 |
+| ----------- | ------------------- | -------------------------------------- |
+| Paperless   | `document_exporter` | Has built-in export, no downtime       |
+| Vaultwarden | Stop container      | Passwords require zero corruption risk |
+| UniFi       | File backup         | Built-in auto-backups, can run live    |
+| Homepage    | File backup         | Static config files, no database       |
+
 ## Usage
 
 ### Deploy with Ansible

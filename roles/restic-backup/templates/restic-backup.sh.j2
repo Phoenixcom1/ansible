@@ -40,6 +40,9 @@ EXCLUDE_ARGS=()
 EXCLUDE_ARGS+=(--exclude "{{ exclude }}")
 {% endfor %}
 
+# Track stopped containers for restart
+declare -a STOPPED_SERVICES=()
+
 # Pre-backup actions
 echo ""
 echo "Running pre-backup actions..."
@@ -58,6 +61,24 @@ else
     echo "⚠ Warning: Paperless container not running, skipping export"
 fi
 {% endif %}
+
+{% for service_name, service_config in restic_backup_services.items() %}
+{% if service_config.enabled and service_config.get('stop_before_backup', False) %}
+# {{ service_name }}: Stop compose stack for safe database backup
+COMPOSE_FILE="{{ service_config.compose_file }}"
+PROJECT_NAME="{{ service_config.project_name }}"
+echo "Stopping {{ service_name }} (project: ${PROJECT_NAME}) for safe backup..."
+if [ -f "${COMPOSE_FILE}" ]; then
+    su - {{ podman_username }} -c "podman-compose -f ${COMPOSE_FILE} --project-name ${PROJECT_NAME} down" || {
+        echo "⚠ Warning: Failed to stop ${PROJECT_NAME}, backup may be inconsistent"
+    }
+    STOPPED_SERVICES+=("${COMPOSE_FILE}|${PROJECT_NAME}")
+    echo "✓ {{ service_name }} stopped"
+else
+    echo "⚠ Warning: Compose file ${COMPOSE_FILE} not found, skipping {{ service_name }} stop"
+fi
+{% endif %}
+{% endfor %}
 
 echo "Pre-backup actions completed"
 echo ""
@@ -92,6 +113,21 @@ restic forget \
     --keep-weekly {{ restic_keep_weekly }} \
     --keep-monthly {{ restic_keep_monthly }} \
     --prune
+
+# Restart stopped services
+if [ {% raw %}${#STOPPED_SERVICES[@]}{% endraw %} -gt 0 ]; then
+    echo ""
+    echo "Restarting stopped services..."
+    for SERVICE_INFO in "${STOPPED_SERVICES[@]}"; do
+        COMPOSE_FILE="{% raw %}${SERVICE_INFO%%|*}{% endraw %}"
+        PROJECT_NAME="{% raw %}${SERVICE_INFO##*|}{% endraw %}"
+        echo "Starting project ${PROJECT_NAME}..."
+        su - {{ podman_username }} -c "podman-compose -f ${COMPOSE_FILE} --project-name ${PROJECT_NAME} up -d" || {
+            echo "⚠ ERROR: Failed to restart ${PROJECT_NAME}!"
+        }
+        echo "✓ ${PROJECT_NAME} restarted"
+    done
+fi
 
 # Show repository statistics
 echo ""

@@ -48,6 +48,18 @@ restic_backup_services:
       - "*.log"
       - "*/thumbnails/*" # Can be regenerated
 
+  vaultwarden:
+    enabled: true
+    # Strategy: Stop container before backup (passwords are critical)
+    stop_before_backup: true
+    compose_file: "{{ podman_service_dir }}/vaultwarden/compose_vaultwarden.yml"
+    project_name: vaultwarden
+    paths:
+      - "{{ podman_service_dir }}/vaultwarden/data"
+    excludes:
+      - "*.log"
+      - "*/icon_cache/*" # Website icons - can be re-downloaded
+
 # Global excludes (applied to all backups)
 restic_global_excludes:
   - "*/cache/*"
