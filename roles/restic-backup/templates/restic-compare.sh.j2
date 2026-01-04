@@ -1,0 +1,90 @@
+#!/bin/bash
+# Restic backup comparison script
+# Compare the last two backups for a specific service
+
+set -euo pipefail
+
+# Configuration
+RESTIC_REPOSITORY="{{ restic_repository }}"
+RESTIC_PASSWORD_FILE="{{ restic_password_file }}"
+
+export RESTIC_REPOSITORY
+export RESTIC_PASSWORD_FILE
+
+# Get service tag from argument
+SERVICE_TAG="${1:-}"
+
+if [ -z "$SERVICE_TAG" ]; then
+    echo "Usage: $0 <service-tag>"
+    echo ""
+    echo "Available service tags:"
+    restic snapshots --json | jq -r '.[].tags[]' | sort -u | sed 's/^/  - /'
+    exit 1
+fi
+
+echo "=========================================="
+echo "Comparing last two backups for: $SERVICE_TAG"
+echo "=========================================="
+echo ""
+
+# Get the last two snapshot IDs for the service
+SNAPSHOTS=$(restic snapshots --tag="$SERVICE_TAG" --json | jq -r 'sort_by(.time) | reverse | .[0:2] | .[].short_id')
+SNAPSHOT_COUNT=$(echo "$SNAPSHOTS" | wc -l)
+
+if [ "$SNAPSHOT_COUNT" -lt 2 ]; then
+    echo "Error: Not enough snapshots found for tag '$SERVICE_TAG'"
+    echo "Found $SNAPSHOT_COUNT snapshot(s), need at least 2 for comparison"
+    exit 1
+fi
+
+# Parse snapshot IDs
+NEWER_SNAPSHOT=$(echo "$SNAPSHOTS" | head -n 1)
+OLDER_SNAPSHOT=$(echo "$SNAPSHOTS" | tail -n 1)
+
+echo "Comparing snapshots:"
+echo "  Older:  $OLDER_SNAPSHOT"
+echo "  Newer:  $NEWER_SNAPSHOT"
+echo ""
+
+# Show snapshot details
+echo "Snapshot details:"
+restic snapshots --tag="$SERVICE_TAG" --last 2
+echo ""
+
+# Show size statistics for both
+echo "=========================================="
+echo "Storage statistics:"
+echo "=========================================="
+echo ""
+echo "Older snapshot ($OLDER_SNAPSHOT):"
+restic stats "$OLDER_SNAPSHOT" --mode=restore-size
+echo ""
+echo "Newer snapshot ($NEWER_SNAPSHOT):"
+restic stats "$NEWER_SNAPSHOT" --mode=restore-size
+echo ""
+
+# Show differences
+echo "=========================================="
+echo "Changes between snapshots:"
+echo "=========================================="
+echo ""
+restic diff "$OLDER_SNAPSHOT" "$NEWER_SNAPSHOT"
+echo ""
+
+# Summary
+echo "=========================================="
+echo "Summary:"
+echo "=========================================="
+DIFF_OUTPUT=$(restic diff "$OLDER_SNAPSHOT" "$NEWER_SNAPSHOT" 2>&1)
+ADDED=$(echo "$DIFF_OUTPUT" | grep -E "^(\+|Added:)" | wc -l)
+MODIFIED=$(echo "$DIFF_OUTPUT" | grep -E "^(M|Modified:)" | wc -l)
+REMOVED=$(echo "$DIFF_OUTPUT" | grep -E "^(-|Removed:)" | wc -l)
+
+echo "Files added:    $ADDED"
+echo "Files modified: $MODIFIED"
+echo "Files removed:  $REMOVED"
+
+if [ "$ADDED" -eq 0 ] && [ "$MODIFIED" -eq 0 ] && [ "$REMOVED" -eq 0 ]; then
+    echo ""
+    echo "✓ No changes detected - data is identical!"
+fi

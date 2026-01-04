@@ -107,6 +107,16 @@
 #     mode: "0755"
 #   become: true
 
+# Deploy comparison script
+- name: Deploy restic comparison script
+  template:
+    src: restic-compare.sh.j2
+    dest: /opt/scripts/restic-compare.sh
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
 # Setup systemd service and timer
 - name: Deploy restic backup systemd service
   template:
