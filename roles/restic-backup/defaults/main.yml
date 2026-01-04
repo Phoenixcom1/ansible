@@ -28,6 +28,26 @@ restic_backup_services:
       - "*/logs/*"
       - "*.log"
 
+  paperless:
+    enabled: true
+    paths:
+      # Primary backup: export (created by document_exporter)
+      - "{{ podman_service_dir }}/paperless/export"
+
+      # Media contains originals + OCR'd versions - most important!
+      #- "{{ podman_service_dir }}/paperless/media"
+      # Optional: backup data dir too (SQLite + index) for faster restore
+      # Comment out if you only want export-based backups
+      #- "{{ podman_service_dir }}/paperless/data"
+      # Custom scripts and init files (if modified)
+      - "{{ podman_service_dir }}/paperless/scripts"
+      - "{{ podman_service_dir }}/paperless/custom-cont-init.d"
+    excludes:
+      - "*/redisdata/*" # Redis cache - can be regenerated
+      - "*/consume/*" # Network mount - backed up elsewhere
+      - "*.log"
+      - "*/thumbnails/*" # Can be regenerated
+
 # Global excludes (applied to all backups)
 restic_global_excludes:
   - "*/cache/*"

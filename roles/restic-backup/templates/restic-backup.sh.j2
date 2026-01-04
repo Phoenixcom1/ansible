@@ -40,6 +40,28 @@ EXCLUDE_ARGS=()
 EXCLUDE_ARGS+=(--exclude "{{ exclude }}")
 {% endfor %}
 
+# Pre-backup actions
+echo ""
+echo "Running pre-backup actions..."
+
+{% if restic_backup_services.paperless is defined and restic_backup_services.paperless.enabled %}
+# Paperless: Run document exporter for consistent backup
+echo "Running Paperless document exporter..."
+PAPERLESS_CONTAINER="paperless-webserver"
+if su - {{ podman_username }} -c "podman ps --format '{% raw %}{{.Names}}{% endraw %}'" | grep -q "^${PAPERLESS_CONTAINER}$"; then
+    echo "Paperless container is running, executing document_exporter..."
+    su - {{ podman_username }} -c "podman exec ${PAPERLESS_CONTAINER} document_exporter /usr/src/paperless/export" || {
+        echo "⚠ Warning: Paperless export failed, continuing with file backup"
+    }
+    echo "✓ Paperless export completed"
+else
+    echo "⚠ Warning: Paperless container not running, skipping export"
+fi
+{% endif %}
+
+echo "Pre-backup actions completed"
+echo ""
+
 # Backup each enabled service
 {% for service_name, service_config in restic_backup_services.items() %}
 {% if service_config.enabled %}

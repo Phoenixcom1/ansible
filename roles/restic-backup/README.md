@@ -56,6 +56,34 @@ restic_backup_services:
       - "*/redisdata/*"
 ```
 
+## Pre-Backup Actions
+
+The backup script automatically performs service-specific pre-backup tasks:
+
+### Paperless Document Export
+
+Before backing up Paperless files, the script automatically runs:
+
+```bash
+su - podman -c "podman exec paperless-webserver document_exporter /usr/src/paperless/export"
+```
+
+**What this does:**
+
+- Creates a consistent JSON export of all documents and metadata
+- Exports to `/opt/podman/paperless/export/` (included in backup)
+- Ensures database consistency (safer than backing up SQLite while running)
+- Preserves all tags, correspondents, document types, custom fields
+
+**Benefits:**
+
+- Guaranteed consistent backup (no corruption risk)
+- Human-readable export format (JSON + files)
+- Easy to restore with `document_importer`
+- Can be imported into fresh Paperless instance
+
+**Note:** If Paperless container is not running, the script continues with file backup only.
+
 ## Usage
 
 ### Deploy with Ansible
