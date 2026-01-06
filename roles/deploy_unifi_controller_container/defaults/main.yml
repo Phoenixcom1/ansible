@@ -42,4 +42,6 @@ unifi_log_level: "warn"
 # Reverse proxy settings
 unifi_published_server_url: "https://{{ unifi_domain }}"
 
+# Podman user and network
+podman_user: "{{ podman_username }}"
 podman_network: "podman_bridge" # Network the container runs on

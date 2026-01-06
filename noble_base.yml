@@ -20,9 +20,9 @@
     #- nginx_reverse_proxy
     #- podman-compose-deploy
     #- deploy_homepage_container
-    - deploy_jellyfin_container
+    #- deploy_jellyfin_container
     #- deploy_vaultwarden_container
-    #- deploy_unifi_controller_container
+    - deploy_unifi_controller_container
     #- deploy_paperless_container
     #- deploy_frigate_container
     #- restic-backup

@@ -1,0 +1,63 @@
+# unifi.container
+# Managed by Ansible - Podman Quadlet for UniFi Network Controller
+# https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html
+
+[Unit]
+Description=UniFi Network Controller
+Documentation=https://help.ui.com/
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=docker.io/jacobalberty/unifi:latest
+AutoUpdate=registry
+ContainerName=unifi
+
+# Network
+Network={{ podman_network }}
+
+# Main GUI/API port (HTTPS) - localhost only, accessed via nginx proxy
+PublishPort=127.0.0.1:{{ unifi_port }}:{{ unifi_port_internal }}/tcp
+
+# Device controller communication
+PublishPort={{ unifi_device_port }}:{{ unifi_device_port }}/tcp
+
+# STUN server (device discovery)
+PublishPort={{ unifi_stun_port }}:{{ unifi_stun_port }}/udp
+
+# Speed test
+PublishPort={{ unifi_speedtest_port }}:{{ unifi_speedtest_port }}/tcp
+
+# HTTP portal redirection
+PublishPort={{ unifi_http_portal_port }}:{{ unifi_http_portal_port }}/tcp
+
+# HTTPS portal redirection
+PublishPort={{ unifi_https_portal_port }}:{{ unifi_https_portal_port }}/tcp
+
+# AP discovery (broadcast on all interfaces)
+PublishPort={{ unifi_ap_discovery_port }}:{{ unifi_ap_discovery_port }}/udp
+
+# Volumes
+Volume={{ unifi_config_dir }}:/unifi:Z
+
+# Environment
+Environment=TZ={{ unifi_timezone }}
+Environment=LOG_LEVEL={{ unifi_log_level }}
+
+# User - UniFi runs as specific UID inside container
+UserNS=keep-id
+User={{ podman_user_uid }}:{{ podman_user_gid }}
+
+# Health check
+HealthCmd=curl -f -k https://localhost:{{ unifi_port_internal }}/manage || exit 1
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=3
+HealthStartPeriod=300s
+
+[Service]
+Restart=always
+TimeoutStopSec=70
+
+[Install]
+WantedBy=default.target

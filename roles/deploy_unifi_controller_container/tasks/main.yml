@@ -1,5 +1,19 @@
 ---
-# UniFi Controller service deployment
+# UniFi Controller service deployment using Podman Quadlets
+
+# Discover podman user's UID and GID
+- name: Get podman user info
+  getent:
+    database: passwd
+    key: "{{ podman_user }}"
+  register: podman_user_info
+  changed_when: false
+
+- name: Extract podman user UID and GID
+  set_fact:
+    podman_user_uid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][1] }}"
+    podman_user_gid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][2] }}"
+  when: podman_user in podman_user_info.ansible_facts.getent_passwd
 
 # Create config directory
 - name: Check if unifi config directory exists
@@ -17,93 +31,91 @@
   become: true
   when: not unifi_config_stat.stat.exists
 
-- name: Check if unifi repo directory exists
-  stat:
-    path: "{{ unifi_repo_path }}"
-  register: unifi_repo_stat
-
-- name: Create unifi repo directory
+# Create Quadlet directory (Podman systemd units)
+- name: Create Quadlet directory for podman user
   file:
-    path: "{{ unifi_repo_path }}"
+    path: "/home/{{ podman_user }}/.config/containers/systemd"
     state: directory
     owner: "{{ podman_user }}"
     group: "{{ podman_user }}"
     mode: "0755"
   become: true
-  when: not unifi_repo_stat.stat.exists
 
-- name: Deploy unifi compose file
+# Deploy Quadlet container file
+- name: Deploy unifi Quadlet container file
   template:
-    src: compose_unifi.yml.j2
-    dest: "{{ unifi_repo_path }}/{{ unifi_compose_file }}"
+    src: unifi.container.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/unifi.container"
     owner: "{{ podman_user }}"
     group: "{{ podman_user }}"
     mode: "0644"
   become: true
+  register: quadlet_deployed
 
-- name: Remove existing unifi container if present
-  command: >
-    /usr/bin/podman-compose
-    -f {{ unifi_repo_path }}/{{ unifi_compose_file }}
-    --project-name {{ unifi_project_name }}
-    down --remove-orphans
+# Enable lingering for podman user (allows user services to run without login)
+- name: Enable lingering for podman user
+  command: loginctl enable-linger {{ podman_user }}
+  become: true
+  changed_when: false
+
+# Reload systemd daemon to pick up Quadlet changes
+- name: Reload systemd user daemon (Quadlet generation)
+  systemd:
+    daemon_reload: yes
+    scope: user
   become: true
   become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+
+# Restart service if Quadlet changed, otherwise ensure it's enabled and started
+- name: Restart unifi service (Quadlet changed)
+  systemd:
+    name: unifi
+    state: restarted
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  when: quadlet_deployed.changed
+
+- name: Ensure unifi service is enabled and started
+  systemd:
+    name: unifi
+    enabled: yes
+    state: started
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  when: not quadlet_deployed.changed
+
+# Wait for container to be healthy
+- name: Wait for UniFi container to be healthy
+  command: podman healthcheck run unifi
+  become: true
+  become_user: "{{ podman_user }}"
+  register: unifi_health
+  retries: 30
+  delay: 10
+  until: unifi_health.rc == 0
   changed_when: false
   ignore_errors: true
-
-- name: Deploy unifi container via docker-compose
-  command: >
-    podman-compose
-    -f {{ unifi_repo_path }}/{{ unifi_compose_file }}
-    --project-name {{ unifi_project_name }}
-    up -d
-  become: true
-  become_user: "{{ podman_user }}"
-  register: unifi_compose_result
-  changed_when: "'created' in unifi_compose_result.stdout or 'started' in unifi_compose_result.stdout"
-  until: unifi_compose_result.rc == 0
-
-# Wait for container to be in running state
-- name: Wait for UniFi container to start
-  command: podman ps --filter name=unifi --filter status=running --format='{% raw %}{{.ID}}{% endraw %}'
-  become: true
-  become_user: "{{ podman_user }}"
-  register: unifi_running
-  retries: 15
-  delay: 3
-  until: unifi_running.stdout | length > 0
-  changed_when: false
-
-- name: Get UniFi container logs on failure
-  command: podman logs unifi
-  become: true
-  become_user: "{{ podman_user }}"
-  register: unifi_logs
-  changed_when: false
-  when: unifi_running.stdout | length == 0
-
-- name: Fail if UniFi container failed to start
-  fail:
-    msg: |
-      UniFi container failed to start!
-      Logs:
-      {{ unifi_logs.stdout }}
-  when: unifi_running.stdout | length == 0
-
-- name: Get UniFi container full status
-  command: podman ps -a --filter name=unifi --format='{% raw %}{{.Status}}{% endraw %}'
-  become: true
-  become_user: "{{ podman_user }}"
-  register: unifi_status
-  changed_when: false
 
 - name: Display unifi deployment result
   debug:
     msg: |
-      UniFi Controller deployed successfully!
-      Container Status: {{ unifi_status.stdout }}
-      Web UI accessible at: {{ unifi_published_server_url }}/manage
+      UniFi Controller deployed successfully via Podman Quadlet!
+      - Quadlet: ~/.config/containers/systemd/unifi.container
+      - Service: unifi.service (auto-generated by systemd)
+      - Web UI: {{ unifi_published_server_url }}/manage
+      - Auto-update: Enabled (via AutoUpdate=registry in Quadlet)
+      - Manage: systemctl --user status unifi
+
+      Note: First startup may take 5-10 minutes while UniFi initializes.
+      Check status: podman healthcheck run unifi
 
 # Deploy nginx reverse proxy configuration
 - name: Ensure nginx conf.d directory exists
