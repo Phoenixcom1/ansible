@@ -1,5 +1,19 @@
 ---
-# Vaultwarden service deployment
+# Vaultwarden service deployment using Podman Quadlets
+
+# Discover podman user's UID and GID
+- name: Get podman user info
+  getent:
+    database: passwd
+    key: "{{ podman_user }}"
+  register: podman_user_info
+  changed_when: false
+
+- name: Extract podman user UID and GID
+  set_fact:
+    podman_user_uid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][1] }}"
+    podman_user_gid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][2] }}"
+  when: podman_user in podman_user_info.ansible_facts.getent_passwd
 
 # Create config directory
 - name: Check if vaultwarden config directory exists
@@ -17,21 +31,6 @@
   become: true
   when: not vaultwarden_config_stat.stat.exists
 
-- name: Check if vaultwarden repo directory exists
-  stat:
-    path: "{{ vaultwarden_repo_path }}"
-  register: vaultwarden_repo_stat
-
-- name: Create vaultwarden repo directory
-  file:
-    path: "{{ vaultwarden_repo_path }}"
-    state: directory
-    owner: "{{ podman_user }}"
-    group: "{{ podman_user }}"
-    mode: "0755"
-  become: true
-  when: not vaultwarden_repo_stat.stat.exists
-
 # Create the isolated network for vaultwarden
 - name: Create isolated vaultwarden network
   command: podman network create {{ vaultwarden_network }}
@@ -42,64 +41,90 @@
   failed_when: vaultwarden_network_result.rc != 0 and 'already exists' not in vaultwarden_network_result.stderr
   ignore_errors: true
 
-- name: Deploy vaultwarden compose file
+# Create Quadlet directory (Podman systemd units)
+- name: Create Quadlet directory for podman user
+  file:
+    path: "/home/{{ podman_user }}/.config/containers/systemd"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+
+# Deploy Quadlet container file
+- name: Deploy vaultwarden Quadlet container file
   template:
-    src: compose_vaultwarden.yml.j2
-    dest: "{{ vaultwarden_repo_path }}/{{ vaultwarden_compose_file }}"
+    src: vaultwarden.container.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/vaultwarden.container"
     owner: "{{ podman_user }}"
     group: "{{ podman_user }}"
     mode: "0644"
   become: true
+  register: quadlet_deployed
 
-- name: Remove existing jellyfin container if present
-  command: >
-    /usr/bin/podman-compose
-    -f {{ vaultwarden_repo_path }}/{{ vaultwarden_compose_file }}
-    --project-name {{ vaultwarden_project_name }}
-    down --remove-orphans
+# Enable lingering for podman user (allows user services to run without login)
+- name: Enable lingering for podman user
+  command: loginctl enable-linger {{ podman_user }}
+  become: true
+  changed_when: false
+
+# Reload systemd daemon to pick up Quadlet changes
+- name: Reload systemd user daemon (Quadlet generation)
+  systemd:
+    daemon_reload: yes
+    scope: user
   become: true
   become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+
+# Restart service if Quadlet changed, otherwise ensure it's enabled and started
+- name: Restart vaultwarden service (Quadlet changed)
+  systemd:
+    name: vaultwarden
+    state: restarted
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  when: quadlet_deployed.changed
+
+- name: Ensure vaultwarden service is enabled and started
+  systemd:
+    name: vaultwarden
+    enabled: yes
+    state: started
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  when: not quadlet_deployed.changed
+
+# Wait for container to be healthy
+- name: Wait for Vaultwarden container to be healthy
+  command: podman healthcheck run vaultwarden
+  become: true
+  become_user: "{{ podman_user }}"
+  register: vaultwarden_health
+  retries: 10
+  delay: 3
+  until: vaultwarden_health.rc == 0
   changed_when: false
   ignore_errors: true
 
-- name: Deploy vaultwarden container via docker-compose
-  command: >
-    podman-compose
-    -f {{ vaultwarden_repo_path }}/{{ vaultwarden_compose_file }}
-    --project-name {{ vaultwarden_project_name }}
-    up -d
-  become: true
-  become_user: "{{ podman_user }}"
-  register: vaultwarden_compose_result
-  changed_when: "'created' in vaultwarden_compose_result.stdout or 'started' in vaultwarden_compose_result.stdout"
-  until: vaultwarden_compose_result.rc == 0
-
-# Wait for container to be in running state
-- name: Wait for Vaultwarden container to start
-  command: podman ps --filter name=vaultwarden --filter status=running --format='{% raw %}{{.ID}}{% endraw %}'
-  become: true
-  become_user: "{{ podman_user }}"
-  register: vaultwarden_running
-  retries: 10
-  delay: 2
-  until: vaultwarden_running.stdout | length > 0
-  changed_when: false
-
-- name: Get Vaultwarden container logs on failure
-  command: podman logs vaultwarden
-  become: true
-  become_user: "{{ podman_user }}"
-  register: vaultwarden_logs
-  changed_when: false
-  when: vaultwarden_running.stdout | length == 0
-
-- name: Fail if Vaultwarden container failed to start
-  fail:
+- name: Display vaultwarden deployment result
+  debug:
     msg: |
-      Vaultwarden container failed to start!
-      Logs:
-      {{ vaultwarden_logs.stdout }}
-  when: vaultwarden_running.stdout | length == 0
+      Vaultwarden deployed successfully via Podman Quadlet!
+      - Quadlet: ~/.config/containers/systemd/vaultwarden.container
+      - Service: vaultwarden.service (auto-generated by systemd)
+      - Web UI: {{ vaultwarden_published_server_url }}
+      - Auto-update: DISABLED (manual updates for safety)
+      - Manage: systemctl --user status vaultwarden
+      - Update: Use update-container.yml playbook
+      - Health: {% if vaultwarden_health.rc == 0 %}PASSED{% else %}FAILED (check logs){% endif %}
 
 - name: Get Vaultwarden container full status
   command: podman ps -a --filter name=vaultwarden --format='{% raw %}{{.Status}}{% endraw %}'

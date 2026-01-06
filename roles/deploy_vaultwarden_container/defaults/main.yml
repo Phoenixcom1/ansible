@@ -39,3 +39,6 @@ vaultwarden_extended_logging: true
 
 # Reverse proxy settings
 vaultwarden_published_server_url: "https://{{ vaultwarden_domain }}"
+
+# Podman user
+podman_user: "{{ podman_username }}"

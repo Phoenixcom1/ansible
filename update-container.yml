@@ -1,0 +1,246 @@
+---
+# Safe Container Update Playbook
+#
+# This playbook safely updates a Podman container with backup and rollback capability
+#
+# Usage:
+#   ansible-playbook update-container.yml -i inventory/01-lab.yml \
+#     -e "target_host=docker-vm" \
+#     -e "container_name=vaultwarden" \
+#     -e "backup_enabled=true"
+#
+# Variables:
+#   target_host: The host to update (required)
+#   container_name: Name of the container to update (required)
+#   backup_enabled: Whether to backup before update (default: true)
+#   new_image_tag: Specific image tag to update to (optional, default: latest)
+#   skip_health_check: Skip health check after update (default: false)
+
+- name: Safe Container Update with Backup
+  hosts: "{{ target_host }}"
+  become: false
+  gather_facts: yes
+
+  vars:
+    backup_enabled: true
+    skip_health_check: false
+    new_image_tag: "latest"
+    podman_user: "{{ podman_username }}"
+
+  tasks:
+    - name: Validate required variables
+      assert:
+        that:
+          - target_host is defined
+          - container_name is defined
+        fail_msg: "Required variables missing. Use: -e 'target_host=host container_name=name'"
+
+    - name: Get podman user info
+      getent:
+        database: passwd
+        key: "{{ podman_user }}"
+      register: podman_user_info
+
+    - name: Extract podman user UID
+      set_fact:
+        podman_user_uid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][1] }}"
+
+    - name: Check if container exists
+      command: podman ps -a --filter name={{ container_name }} --format {% raw %}'{{.Names}}'{% endraw %}
+      become: true
+      become_user: "{{ podman_user }}"
+      register: container_check
+      changed_when: false
+
+    - name: Fail if container doesn't exist
+      fail:
+        msg: "Container '{{ container_name }}' not found"
+      when: container_name not in container_check.stdout
+
+    - name: Get current image ID
+      command: podman inspect {{ container_name }} --format {% raw %}'{{.Image}}'{% endraw %}
+      become: true
+      become_user: "{{ podman_user }}"
+      register: current_image
+      changed_when: false
+
+    - name: Display current image
+      debug:
+        msg: "Current image ID: {{ current_image.stdout }}"
+
+    - name: Get container image name from container config
+      command: podman inspect {{ container_name }} --format {% raw %}'{{.ImageName}}'{% endraw %}
+      become: true
+      become_user: "{{ podman_user }}"
+      register: current_image_info
+      changed_when: false
+
+    - name: Display current image info
+      debug:
+        msg: "Current image: {{ current_image_info.stdout }}"
+
+    # Backup phase
+    - name: Backup container data (if enabled)
+      block:
+        - name: Stop container for backup
+          systemd:
+            name: "{{ container_name }}"
+            state: stopped
+            scope: user
+          become: true
+          become_user: "{{ podman_user }}"
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+
+        - name: Create backup timestamp
+          set_fact:
+            backup_timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
+
+        - name: Create backup directory
+          file:
+            path: "/opt/container-backups/{{ container_name }}"
+            state: directory
+            mode: "0755"
+            owner: root
+            group: root
+          become: true
+
+        - name: Backup container data directory
+          command: >
+            rsync -av
+            {{ podman_service_dir }}/{{ container_name }}/
+            /opt/container-backups/{{ container_name }}/backup-{{ backup_timestamp }}/
+          become: true
+          register: backup_result
+
+        - name: Display backup location
+          debug:
+            msg: "Backup created at: /opt/container-backups/{{ container_name }}/backup-{{ backup_timestamp }}/"
+
+        - name: Restart container after backup
+          systemd:
+            name: "{{ container_name }}"
+            state: started
+            scope: user
+          become: true
+          become_user: "{{ podman_user }}"
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+
+      when: backup_enabled | bool
+
+    # Update phase
+    - name: Extract base image name
+      set_fact:
+        base_image_name: "{{ current_image_info.stdout | regex_replace(':.*$', '') }}"
+
+    - name: Pull new image
+      command: podman pull {{ base_image_name }}:{{ new_image_tag }}
+      become: true
+      become_user: "{{ podman_user }}"
+      register: pull_result
+      changed_when: "'Downloaded newer image' in pull_result.stdout or 'Storing signatures' in pull_result.stderr"
+
+    - name: Display pull result
+      debug:
+        msg: "{{ pull_result.stdout }}"
+
+    - name: Check if new image is different
+      set_fact:
+        image_changed: "{{ pull_result.changed }}"
+
+    - name: Stop container for update
+      systemd:
+        name: "{{ container_name }}"
+        state: stopped
+        scope: user
+      become: true
+      become_user: "{{ podman_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+      when: image_changed
+
+    - name: Remove old container
+      command: podman rm {{ container_name }}
+      become: true
+      become_user: "{{ podman_user }}"
+      when: image_changed
+      ignore_errors: true
+
+    - name: Reload systemd to recreate container with new image
+      systemd:
+        daemon_reload: yes
+        scope: user
+      become: true
+      become_user: "{{ podman_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+      when: image_changed
+
+    - name: Start container with new image
+      systemd:
+        name: "{{ container_name }}"
+        state: started
+        scope: user
+      become: true
+      become_user: "{{ podman_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+      when: image_changed
+
+    # Health check phase
+    - name: Wait for container to be healthy
+      command: podman healthcheck run {{ container_name }}
+      become: true
+      become_user: "{{ podman_user }}"
+      register: health_check
+      retries: 10
+      delay: 5
+      until: health_check.rc == 0
+      changed_when: false
+      when: not skip_health_check | bool and image_changed
+      ignore_errors: true
+
+    - name: Display health check result
+      debug:
+        msg: "Health check: {{ 'PASSED' if health_check.rc == 0 else 'FAILED' }}"
+      when: not skip_health_check | bool and image_changed
+
+    - name: Get new image ID
+      command: podman inspect {{ container_name }} --format {% raw %}'{{.Image}}'{% endraw %}
+      become: true
+      become_user: "{{ podman_user }}"
+      register: new_image
+      changed_when: false
+      when: image_changed
+
+    - name: Display update summary
+      debug:
+        msg: |
+          Container Update Summary:
+          =========================
+          Container: {{ container_name }}
+          Old Image ID: {{ current_image.stdout[:12] }}
+          New Image ID: {{ new_image.stdout[:12] if image_changed else current_image.stdout[:12] }}
+          Status: {{ 'UPDATED' if image_changed else 'NO CHANGES' }}
+          Health: {{ 'HEALTHY' if (image_changed and not skip_health_check and health_check.rc == 0) else ('SKIPPED' if not image_changed else 'CHECK MANUALLY') }}
+
+          {% if backup_enabled %}
+          Backup Location: /opt/container-backups/{{ container_name }}/backup-{{ backup_timestamp }}/
+          {% endif %}
+
+          {% if image_changed %}
+          Rollback Command (if needed):
+          sudo -u {{ podman_user }} podman stop {{ container_name }}
+          sudo -u {{ podman_user }} podman rm {{ container_name }}
+          sudo -u {{ podman_user }} podman run --replace --name {{ container_name }} {{ current_image.stdout }}
+          {% endif %}
+
+    - name: Prompt for cleanup of old images
+      debug:
+        msg: |
+          To cleanup old unused images, run:
+          sudo -u {{ podman_user }} podman image prune -f
+
+          To list all images:
+          sudo -u {{ podman_user }} podman images

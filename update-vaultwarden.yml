@@ -1,0 +1,21 @@
+---
+# Vaultwarden Safe Update Playbook
+#
+# This playbook safely updates Vaultwarden with automatic backup
+#
+# Usage:
+#   # Update to latest:
+#   ansible-playbook update-vaultwarden.yml -i inventory/01-lab.yml -l docker-vm
+#
+#   # Update to specific version:
+#   ansible-playbook update-vaultwarden.yml -i inventory/01-lab.yml -l docker-vm -e "vaultwarden_version=1.30.1"
+#
+#   # Skip backup (not recommended):
+#   ansible-playbook update-vaultwarden.yml -i inventory/01-lab.yml -l docker-vm -e "backup_enabled=false"
+
+- name: Update Vaultwarden Container
+  import_playbook: update-container.yml
+  vars:
+    target_host: all
+    container_name: vaultwarden
+    new_image_tag: "{{ vaultwarden_version | default('latest') }}"

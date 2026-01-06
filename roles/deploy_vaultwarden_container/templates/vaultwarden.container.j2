@@ -1,0 +1,68 @@
+# vaultwarden.container
+# Managed by Ansible - Podman Quadlet for Vaultwarden password manager
+# https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html
+#
+# AUTO-UPDATE DISABLED: Manual updates only for safety
+# Use update-container.yml playbook to safely update this container
+
+[Unit]
+Description=Vaultwarden Password Manager
+Documentation=https://github.com/dani-garcia/vaultwarden
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=docker.io/vaultwarden/server:latest
+# AutoUpdate intentionally disabled for manual control
+ContainerName=vaultwarden
+
+# Network (isolated)
+Network={{ vaultwarden_network }}
+PublishPort=127.0.0.1:{{ vaultwarden_port }}:80/tcp
+
+# Volumes
+Volume={{ vaultwarden_config_dir }}:/data:Z
+
+# Environment - Timezone
+Environment=TZ={{ vaultwarden_timezone }}
+
+# Environment - Logging
+Environment=LOG_FILE=/data/bitwarden.log
+Environment=EXTENDED_LOGGING={{ vaultwarden_extended_logging | lower }}
+Environment=LOG_LEVEL={{ vaultwarden_log_level }}
+
+# Environment - Performance
+Environment=ROCKET_WORKERS={{ vaultwarden_rocket_workers }}
+Environment=WEBSOCKET_ENABLED={{ vaultwarden_websocket_enabled | lower }}
+
+# Environment - Security
+Environment=SIGNUPS_ALLOWED={{ vaultwarden_signups_allowed | lower }}
+Environment=SHOW_PASSWORD_HINT={{ vaultwarden_show_password_hint | lower }}
+Environment=DISABLE_ICON_DOWNLOAD={{ vaultwarden_disable_icon_download | lower }}
+
+# Environment - Domain
+Environment=DOMAIN={{ vaultwarden_published_server_url }}
+
+{% if vaultwarden_smtp_enabled | default(false) %}
+# Environment - SMTP
+Environment=SMTP_HOST={{ vaultwarden_smtp_host }}
+Environment=SMTP_PORT={{ vaultwarden_smtp_port }}
+Environment=SMTP_SSL={{ vaultwarden_smtp_ssl | lower }}
+Environment=SMTP_USERNAME={{ vaultwarden_smtp_username }}
+Environment=SMTP_PASSWORD={{ vaultwarden_smtp_password }}
+Environment=SMTP_FROM={{ vaultwarden_smtp_from }}
+{% endif %}
+
+# Health check
+HealthCmd=curl -f http://localhost/alive || exit 1
+HealthInterval=30s
+HealthTimeout=3s
+HealthRetries=3
+HealthStartPeriod=30s
+
+[Service]
+Restart=always
+TimeoutStopSec=70
+
+[Install]
+WantedBy=default.target
