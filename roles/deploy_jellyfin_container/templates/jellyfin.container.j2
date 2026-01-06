@@ -1,0 +1,41 @@
+# jellyfin.container
+# Managed by Ansible - Podman Quadlet for Jellyfin media server
+# https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html
+
+[Unit]
+Description=Jellyfin Media Server
+Documentation=https://jellyfin.org/docs/
+Wants=network-online.target
+After=network-online.target
+{% if jellyfin_enable_network_mount %}
+RequiresMountsFor={{ jellyfin_media_dir }}
+{% endif %}
+
+[Container]
+Image=docker.io/jellyfin/jellyfin:latest
+AutoUpdate=registry
+ContainerName=jellyfin
+
+# Network
+Network={{ podman_network }}
+PublishPort=127.0.0.1:{{ jellyfin_port }}:{{ jellyfin_port }}/tcp
+PublishPort={{ jellyfin_discovery_port }}:{{ jellyfin_discovery_port }}/udp
+
+# Volumes
+Volume={{ jellyfin_config_dir }}:/config:Z
+Volume={{ jellyfin_cache_dir }}:/cache:Z
+Volume={{ jellyfin_media_dir }}:/media:ro,Z
+
+# Environment
+Environment=JELLYFIN_PublishedServerUrl={{ jellyfin_domain }}
+
+# User - Jellyfin runs as root inside container, but we use userns
+UserNS=keep-id
+User={{ podman_user_uid }}:{{ podman_user_gid }}
+
+[Service]
+Restart=always
+TimeoutStopSec=70
+
+[Install]
+WantedBy=default.target
