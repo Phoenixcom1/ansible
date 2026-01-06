@@ -1,0 +1,36 @@
+# paperless-redis.container
+# Managed by Ansible - Podman Quadlet for Paperless Redis broker
+# https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html
+#
+# AUTO-UPDATE DISABLED: Manual updates only for safety (dependencies between services)
+# Use update-container.yml playbook to safely update containers
+
+[Unit]
+Description=Paperless Redis Broker
+Documentation=https://redis.io/docs/
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=docker.io/library/redis:7
+# AutoUpdate intentionally disabled for manual control
+ContainerName=paperless-redis
+
+# Network (isolated)
+Network={{ paperless_network }}
+
+# Volumes
+Volume={{ paperless_redis_dir }}:/data:Z
+
+# Health check
+HealthCmd=redis-cli ping
+HealthInterval=30s
+HealthTimeout=3s
+HealthRetries=3
+
+[Service]
+Restart=unless-stopped
+TimeoutStopSec=70
+
+[Install]
+WantedBy=default.target

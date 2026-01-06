@@ -1,0 +1,17 @@
+# paperless-stack.target
+# Managed by Ansible - Systemd target to manage Paperless services as a stack
+#
+# This allows managing all Paperless containers together:
+#   systemctl --user start paperless-stack.target
+#   systemctl --user stop paperless-stack.target
+#   systemctl --user restart paperless-stack.target
+#   systemctl --user status paperless-stack.target
+
+[Unit]
+Description=Paperless Stack (All Services)
+Documentation=https://docs.paperless-ngx.com/
+Wants=paperless-redis.service paperless-gotenberg.service paperless-tika.service paperless-webserver.service
+After=paperless-redis.service paperless-gotenberg.service paperless-tika.service paperless-webserver.service
+
+[Install]
+WantedBy=default.target

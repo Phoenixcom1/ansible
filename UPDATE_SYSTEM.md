@@ -4,17 +4,18 @@ Safe container update playbooks with backup and rollback capability.
 
 ## Overview
 
-For containers with **auto-update disabled** (like Vaultwarden), use these playbooks to safely update with automatic backups.
+For containers with **auto-update disabled** (like Vaultwarden and Paperless), use these playbooks to safely update with automatic backups.
 
 ## Files
 
-- **`update-container.yml`** - Generic reusable playbook for any container
-- **`update-vaultwarden.yml`** - Wrapper for Vaultwarden updates
+- **`update-container.yml`** - Generic reusable playbook for single containers
+- **`update-vaultwarden.yml`** - Wrapper for Vaultwarden (single container)
+- **`update-paperless.yml`** - Stack update for Paperless (4 containers with shared data)
 - More wrappers can be created for other containers
 
 ## Quick Start
 
-### Update Vaultwarden
+### Update Vaultwarden (Single Container)
 
 ```bash
 # Update to latest version
@@ -25,16 +26,30 @@ ansible-playbook update-vaultwarden.yml -i inventory/01-lab.yml -l docker-vm \
   -e "vaultwarden_version=1.30.1"
 ```
 
-### Update Any Container
+### Update Paperless (Container Stack)
+
+```bash
+# Update entire Paperless stack (4 containers, 1 backup)
+ansible-playbook update-paperless.yml -i inventory/01-lab.yml -l docker-vm
+
+# Update to specific version
+ansible-playbook update-paperless.yml -i inventory/01-lab.yml -l docker-vm \
+  -e "paperless_version=2.5.0"
+```
+
+### Update Any Single Container
 
 ```bash
 ansible-playbook update-container.yml -i inventory/01-lab.yml \
-  -e "target_host=docker-vm" \
+  -e "target_host=all" \
   -e "container_name=my-container" \
-  -e "backup_enabled=true"
+  -e "backup_enabled=true" \
+  -l docker-vm
 ```
 
 ## How It Works
+
+### Single Container Updates (e.g., Vaultwarden)
 
 1. **Pre-Update Check**
 
@@ -67,8 +82,41 @@ ansible-playbook update-container.yml -i inventory/01-lab.yml \
 
 5. **Cleanup**
    - Old image kept for rollback
-   - Backup remains in `/tmp/`
+   - Backup remains in `/opt/container-backups/`
    - Manual cleanup instructions provided
+
+### Stack Updates (e.g., Paperless)
+
+1. **Pre-Update Check**
+
+   - Validates all containers exist
+   - Gets current image IDs for all containers
+
+2. **Single Backup Phase**
+
+   - Stops all containers (reverse order: webserver → support services)
+   - Creates ONE backup of shared data directory: `/opt/container-backups/paperless-stack/backup-<timestamp>/`
+   - Restarts all containers (correct order: support services → webserver)
+
+3. **Update Phase**
+
+   - Pulls new images for all containers
+   - Compares image IDs to detect changes
+   - If ANY changed:
+     - Stops all containers (reverse order)
+     - Reloads systemd
+     - Starts all containers (correct order)
+
+4. **Verification Phase**
+
+   - Runs health checks on critical services
+   - Displays summary for entire stack
+
+5. **Benefits**
+   - Single backup (not 4x redundant backups)
+   - Atomic updates (all or nothing)
+   - Maintains service dependencies
+   - Correct startup order guaranteed
 
 ## Update Options
 
@@ -304,17 +352,41 @@ Both provide safety:
 
 ## Container Auto-Update Policy
 
-| Container       | Auto-Update | Update Method       | Reason                          |
-| --------------- | ----------- | ------------------- | ------------------------------- |
-| **Vaultwarden** | ❌ Disabled | Manual via playbook | Critical - stores passwords     |
-| **Homepage**    | ✅ Enabled  | Automatic           | Low risk - dashboard only       |
-| **Jellyfin**    | ✅ Enabled  | Automatic           | Medium risk - can rollback      |
-| **UniFi**       | ✅ Enabled  | Automatic           | Medium risk - has health checks |
-| **Frigate**     | TBD         | TBD                 | Depends on criticality          |
-| **Paperless**   | TBD         | TBD                 | Depends on criticality          |
+| Container       | Auto-Update | Update Method       | Reason                                     |
+| --------------- | ----------- | ------------------- | ------------------------------------------ |
+| **Vaultwarden** | ❌ Disabled | Manual via playbook | Critical - stores passwords                |
+| **Paperless**   | ❌ Disabled | Manual stack update | 4 interdependent services, shared data dir |
+| **Homepage**    | ✅ Enabled  | Automatic           | Low risk - dashboard only                  |
+| **Jellyfin**    | ✅ Enabled  | Automatic           | Medium risk - can rollback                 |
+| **UniFi**       | ✅ Enabled  | Automatic           | Medium risk - has health checks            |
+| **Frigate**     | TBD         | TBD                 | Depends on criticality                     |
+
+### Update Strategy by Type
+
+**Single Container (Vaultwarden):**
+
+- Use `update-container.yml` or wrapper (`update-vaultwarden.yml`)
+- Backs up container's data directory
+- Updates one container at a time
+
+**Container Stack (Paperless):**
+
+- Use stack-specific playbook (`update-paperless.yml`)
+- Backs up shared data directory once
+- Updates all containers atomically
+- Maintains correct startup order
+
+**Why Stack Updates for Paperless?**
+
+- 4 containers: redis, gotenberg, tika, webserver
+- All share `/opt/podman/paperless/` directory
+- Interdependent (webserver requires all 3 support services)
+- Backing up 4 times would be redundant
+- Atomic updates ensure consistency
 
 ## Related Documentation
 
 - `roles/deploy_vaultwarden_container/README.md` - Vaultwarden deployment
+- `roles/deploy_paperless_container/README.md` - Paperless stack deployment
 - `roles/restic-backup/README.md` - Daily backup system
 - `README.md` - Main project documentation

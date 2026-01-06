@@ -1,0 +1,27 @@
+# paperless-tika.container
+# Managed by Ansible - Podman Quadlet for Paperless Tika service
+# https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html
+#
+# AUTO-UPDATE DISABLED: Manual updates only for safety (dependencies between services)
+# Use update-container.yml playbook to safely update containers
+
+[Unit]
+Description=Paperless Tika Document Parser
+Documentation=https://tika.apache.org/
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=docker.io/apache/tika:latest
+# AutoUpdate intentionally disabled for manual control
+ContainerName=paperless-tika
+
+# Network (isolated)
+Network={{ paperless_network }}
+
+[Service]
+Restart=unless-stopped
+TimeoutStopSec=70
+
+[Install]
+WantedBy=default.target

@@ -198,77 +198,160 @@
     mode: "0755"
   become: true
 
-- name: Deploy paperless compose file
+# Deploy Quadlet container files
+- name: Get podman user UID for Quadlet deployment
+  set_fact:
+    podman_user_uid: "{{ paperless_uid }}"
+    podman_user_gid: "{{ paperless_gid }}"
+
+- name: Ensure Quadlet directory exists
+  file:
+    path: "/home/{{ podman_user }}/.config/containers/systemd"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+
+- name: Ensure user systemd directory exists
+  file:
+    path: "/home/{{ podman_user }}/.config/systemd/user"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+
+- name: Deploy paperless-redis Quadlet container file
   template:
-    src: compose_paperless.yml.j2
-    dest: "{{ paperless_repo_path }}/{{ paperless_compose_file }}"
+    src: paperless-redis.container.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/paperless-redis.container"
     owner: "{{ podman_user }}"
     group: "{{ podman_user }}"
     mode: "0644"
   become: true
+  register: redis_quadlet_deployed
 
-- name: Remove existing paperless containers if present
-  command: >
-    /usr/bin/podman-compose
-    -f {{ paperless_repo_path }}/{{ paperless_compose_file }}
-    --project-name {{ paperless_project_name }}
-    down --remove-orphans
+- name: Deploy paperless-gotenberg Quadlet container file
+  template:
+    src: paperless-gotenberg.container.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/paperless-gotenberg.container"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: gotenberg_quadlet_deployed
+
+- name: Deploy paperless-tika Quadlet container file
+  template:
+    src: paperless-tika.container.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/paperless-tika.container"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: tika_quadlet_deployed
+
+- name: Deploy paperless-webserver Quadlet container file
+  template:
+    src: paperless-webserver.container.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/paperless-webserver.container"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: webserver_quadlet_deployed
+
+- name: Deploy paperless-stack systemd target (for managing all services together)
+  template:
+    src: paperless-stack.target.j2
+    dest: "/home/{{ podman_user }}/.config/systemd/user/paperless-stack.target"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: stack_target_deployed
+
+- name: Enable lingering for podman user
+  command: loginctl enable-linger {{ podman_user }}
+  become: true
+  changed_when: false
+
+- name: Reload systemd user daemon (Quadlet generation)
+  systemd:
+    daemon_reload: yes
+    scope: user
   become: true
   become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+
+# Manage services via stack target (instead of individually)
+- name: Check if any Quadlet changed
+  set_fact:
+    any_quadlet_changed: "{{ redis_quadlet_deployed.changed or gotenberg_quadlet_deployed.changed or tika_quadlet_deployed.changed or webserver_quadlet_deployed.changed or stack_target_deployed.changed }}"
+
+- name: Restart paperless stack if any Quadlet changed
+  systemd:
+    name: paperless-stack.target
+    state: restarted
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  when: any_quadlet_changed
+
+- name: Ensure paperless stack is enabled and started
+  systemd:
+    name: paperless-stack.target
+    enabled: yes
+    state: started
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  when: not any_quadlet_changed
+
+# Wait for containers to be healthy
+- name: Wait for paperless-redis container to be healthy
+  command: podman healthcheck run paperless-redis
+  become: true
+  become_user: "{{ podman_user }}"
+  register: redis_health
+  retries: 10
+  delay: 3
+  until: redis_health.rc == 0
   changed_when: false
   ignore_errors: true
 
-- name: Deploy paperless containers via docker-compose
-  command: >
-    podman-compose
-    -f {{ paperless_repo_path }}/{{ paperless_compose_file }}
-    --project-name {{ paperless_project_name }}
-    up -d
+- name: Wait for paperless-webserver container to be healthy
+  command: podman healthcheck run paperless-webserver
   become: true
   become_user: "{{ podman_user }}"
-  register: paperless_compose_result
-  changed_when: "'created' in paperless_compose_result.stdout or 'started' in paperless_compose_result.stdout"
-  until: paperless_compose_result.rc == 0
-
-# Wait for containers to be in running state
-- name: Wait for Paperless containers to start
-  command: podman ps --filter name=paperless --filter status=running --format='{% raw %}{{.Names}}{% endraw %}'
-  become: true
-  become_user: "{{ podman_user }}"
-  register: paperless_running
-  retries: 15
-  delay: 3
-  until: paperless_running.stdout_lines | length >= 4
+  register: webserver_health
+  retries: 20
+  delay: 5
+  until: webserver_health.rc == 0
   changed_when: false
+  ignore_errors: true
 
-- name: Get Paperless webserver container logs on failure
-  command: podman logs paperless-webserver
-  become: true
-  become_user: "{{ podman_user }}"
-  register: paperless_webserver_logs
-  changed_when: false
-  when: paperless_running.stdout_lines | length < 4
-
-- name: Get Redis container logs on failure
-  command: podman logs paperless-redis
-  become: true
-  become_user: "{{ podman_user }}"
-  register: paperless_redis_logs
-  changed_when: false
-  when: paperless_running.stdout_lines | length < 4
-
-- name: Fail if Paperless containers failed to start
-  fail:
+- name: Display paperless deployment result
+  debug:
     msg: |
-      Paperless containers failed to start!
-      Running containers: {{ paperless_running.stdout_lines | join(', ') }}
+      Paperless deployed successfully via Podman Quadlets!
+      - Quadlets: ~/.config/containers/systemd/paperless-*.container
+      - Services: paperless-redis.service, paperless-gotenberg.service, paperless-tika.service, paperless-webserver.service
+      - Stack Target: paperless-stack.target (manage all services together)
+      - Web UI: https://{{ paperless_domain }}
+      - Auto-update: DISABLED (manual updates for safety - interdependent services)
+      - Manage individual: systemctl --user status paperless-webserver
+      - Manage stack: systemctl --user restart paperless-stack.target
+      - Update: Use update-paperless.yml playbook
+      - Redis Health: {% if redis_health.rc == 0 %}PASSED{% else %}FAILED (check logs){% endif %}
 
-      Webserver logs:
-      {{ paperless_webserver_logs.stdout | default('Not available') }}
-
-      Redis logs:
-      {{ paperless_redis_logs.stdout | default('Not available') }}
-  when: paperless_running.stdout_lines | length < 4
+      - Webserver Health: {% if webserver_health.rc == 0 %}PASSED{% else %}FAILED (check logs){% endif %}
 
 - name: Deploy nginx reverse proxy configuration
   template:

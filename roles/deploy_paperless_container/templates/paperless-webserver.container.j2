@@ -1,0 +1,63 @@
+# paperless-webserver.container
+# Managed by Ansible - Podman Quadlet for Paperless-ngx webserver
+# https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html
+#
+# AUTO-UPDATE DISABLED: Manual updates only for safety (dependencies between services)
+# Use update-container.yml playbook to safely update containers
+
+[Unit]
+Description=Paperless-ngx Webserver
+Documentation=https://docs.paperless-ngx.com/
+Wants=network-online.target paperless-redis.service paperless-gotenberg.service paperless-tika.service
+After=network-online.target paperless-redis.service paperless-gotenberg.service paperless-tika.service
+{% if paperless_enable_network_mount %}
+RequiresMountsFor={{ paperless_consume_dir }}
+{% endif %}
+
+[Container]
+Image=ghcr.io/paperless-ngx/paperless-ngx:latest
+# AutoUpdate intentionally disabled for manual control
+ContainerName=paperless-webserver
+
+# Network (isolated)
+Network={{ paperless_network }}
+PublishPort=127.0.0.1:{{ paperless_port }}:{{ paperless_internal_port }}/tcp
+
+# Volumes
+Volume={{ paperless_data_dir }}:/usr/src/paperless/data:Z
+Volume={{ paperless_media_dir }}:/usr/src/paperless/media:Z
+Volume={{ paperless_export_dir }}:/usr/src/paperless/export:Z
+Volume={{ paperless_consume_dir }}:/usr/src/paperless/consume:Z
+{% if paperless_scripts_dir is defined %}
+Volume={{ paperless_scripts_dir }}:/usr/src/paperless/scripts:Z
+{% endif %}
+{% if paperless_custom_init_dir is defined %}
+Volume={{ paperless_custom_init_dir }}:/custom-cont-init.d:ro,Z
+{% endif %}
+
+# Environment file (main configuration)
+EnvironmentFile={{ paperless_env_file }}
+
+# Additional environment variables (container-specific)
+Environment=PAPERLESS_URL=https://{{ paperless_domain }}
+Environment=PAPERLESS_REDIS={{ paperless_redis_url }}
+Environment=PAPERLESS_TIKA_ENABLED={{ paperless_tika_enabled | int }}
+Environment=PAPERLESS_TIKA_GOTENBERG_ENDPOINT={{ paperless_tika_gotenberg_endpoint }}
+Environment=PAPERLESS_TIKA_ENDPOINT={{ paperless_tika_endpoint }}
+Environment=PAPERLESS_CONSUMER_DELETE_DUPLICATES={{ paperless_consumer_delete_duplicates | lower }}
+Environment=PAPERLESS_CONSUMER_POLLING={{ paperless_consumer_polling | default(0) | int }}
+Environment=PAPERLESS_CONSUMER_POLLING_DELAY={{ paperless_consumer_polling_delay | default(5) | int }}
+
+# Health check
+HealthCmd=curl -fs -S --max-time 2 http://localhost:{{ paperless_internal_port }}
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=5
+HealthStartPeriod=60s
+
+[Service]
+Restart=unless-stopped
+TimeoutStopSec=70
+
+[Install]
+WantedBy=default.target

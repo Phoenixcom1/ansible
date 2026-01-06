@@ -1,0 +1,223 @@
+---
+# Paperless Safe Update Playbook
+#
+# This playbook safely updates all Paperless containers (stack) with a single backup
+#
+# Usage:
+#   # Update all containers to latest:
+#   ansible-playbook update-paperless.yml -i inventory/01-lab.yml
+#
+#   # Update to specific version:
+#   ansible-playbook update-paperless.yml -i inventory/01-lab.yml -e "paperless_version=2.5.0"
+#
+#   # Skip backup (not recommended):
+#   ansible-playbook update-paperless.yml -i inventory/01-lab.yml -e "backup_enabled=false"
+
+- name: Safe Paperless Stack Update with Backup
+  hosts: all
+  become: false
+  gather_facts: yes
+
+  vars:
+    backup_enabled: true
+    podman_user: "{{ podman_username }}"
+    paperless_data_dir: "/opt/podman/paperless"
+
+    # Container list in update order
+    paperless_containers:
+      - paperless-redis
+      - paperless-gotenberg
+      - paperless-tika
+      - paperless-webserver
+
+  tasks:
+    - name: Validate Paperless directory exists
+      stat:
+        path: "{{ paperless_data_dir }}"
+      register: paperless_dir_check
+
+    - name: Fail if Paperless directory doesn't exist
+      fail:
+        msg: "Paperless data directory not found at {{ paperless_data_dir }}"
+      when: not paperless_dir_check.stat.exists
+
+    - name: Get podman user info
+      getent:
+        database: passwd
+        key: "{{ podman_user }}"
+      register: podman_user_info
+
+    - name: Extract podman user UID
+      set_fact:
+        podman_user_uid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][1] }}"
+
+    # Backup phase (once for entire stack)
+    - name: Backup Paperless stack data
+      block:
+        - name: Stop entire Paperless stack for backup
+          systemd:
+            name: paperless-stack.target
+            state: stopped
+            scope: user
+          become: true
+          become_user: "{{ podman_user }}"
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+
+        - name: Create backup timestamp
+          set_fact:
+            backup_timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
+
+        - name: Create backup directory
+          file:
+            path: "/opt/container-backups/paperless-stack"
+            state: directory
+            mode: "0755"
+            owner: root
+            group: root
+          become: true
+
+        - name: Backup entire Paperless data directory
+          command: >
+            rsync -av
+            {{ paperless_data_dir }}/
+            /opt/container-backups/paperless-stack/backup-{{ backup_timestamp }}/
+          become: true
+          register: backup_result
+
+        - name: Display backup location
+          debug:
+            msg: |
+              Paperless stack backup created!
+              Location: /opt/container-backups/paperless-stack/backup-{{ backup_timestamp }}/
+              Size: {{ backup_result.stdout_lines | length }} files/directories
+
+        - name: Restart all Paperless containers after backup
+          systemd:
+            name: paperless-stack.target
+            state: started
+            scope: user
+          become: true
+          become_user: "{{ podman_user }}"
+          environment:
+            XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+
+      when: backup_enabled | bool
+
+    # Update phase (all containers)
+    - name: Update Paperless containers
+      block:
+        - name: Get current container image info (ID and name)
+          command: podman inspect {{ item }} --format {% raw %}'{{.Image}}|{{.ImageName}}'{% endraw %}
+          become: true
+          become_user: "{{ podman_user }}"
+          register: container_images
+          loop: "{{ paperless_containers }}"
+          changed_when: false
+
+        - name: Pull new images for all containers
+          command: podman pull {{ item.stdout.split('|')[1] }}
+          become: true
+          become_user: "{{ podman_user }}"
+          loop: "{{ container_images.results }}"
+          register: pull_results
+          changed_when: "'Downloaded newer image' in item.stdout or 'Storing signatures' in item.stderr"
+
+        - name: Get new image IDs from pulled images
+          command: podman inspect {{ item.stdout.split('|')[1] }} --format {% raw %}'{{.Id}}'{% endraw %}
+          become: true
+          become_user: "{{ podman_user }}"
+          loop: "{{ container_images.results }}"
+          register: new_images
+          changed_when: false
+
+        - name: Check which containers need updates
+          set_fact:
+            containers_to_update: "{{ containers_to_update | default([]) + [item] }}"
+          when: container_images.results[index].stdout.split('|')[0] != new_images.results[index].stdout
+          loop: "{{ paperless_containers }}"
+          loop_control:
+            index_var: index
+
+        - name: Display update status
+          debug:
+            msg: |
+              Containers needing updates: {{ containers_to_update | default([]) | join(', ') or 'None - all up to date' }}
+
+        - name: Update containers with new images
+          block:
+            - name: Stop Paperless stack for update
+              systemd:
+                name: paperless-stack.target
+                state: stopped
+                scope: user
+              become: true
+              become_user: "{{ podman_user }}"
+              environment:
+                XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+
+            - name: Reload systemd to apply Quadlet changes
+              systemd:
+                daemon_reload: yes
+                scope: user
+              become: true
+              become_user: "{{ podman_user }}"
+              environment:
+                XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+
+            - name: Start Paperless stack with new images
+              systemd:
+                name: paperless-stack.target
+                state: started
+                scope: user
+              become: true
+              become_user: "{{ podman_user }}"
+              environment:
+                XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+
+          when: containers_to_update | default([]) | length > 0
+
+    # Health check phase
+    - name: Wait for containers to be healthy
+      command: podman healthcheck run {{ item }}
+      become: true
+      become_user: "{{ podman_user }}"
+      register: health_check
+      retries: 10
+      delay: 5
+      until: health_check.rc == 0
+      loop:
+        - paperless-redis
+        - paperless-webserver
+      changed_when: false
+      ignore_errors: true
+
+    # Summary
+    - name: Display update summary
+      debug:
+        msg: |
+          Paperless Stack Update Summary:
+          ================================
+          Containers: {{ paperless_containers | join(', ') }}
+          Updated: {{ containers_to_update | default([]) | join(', ') or 'None' }}
+          Status: {{ 'UPDATED' if (containers_to_update | default([]) | length > 0) else 'NO CHANGES' }}
+
+          {% if backup_enabled %}
+          Backup Location: /opt/container-backups/paperless-stack/backup-{{ backup_timestamp }}/
+          {% endif %}
+
+          Health Checks:
+          - Redis: {{ 'HEALTHY' if health_check.results[0].rc == 0 else 'FAILED' }}
+          - Webserver: {{ 'HEALTHY' if health_check.results[1].rc == 0 else 'FAILED' }}
+
+          Manage Services:
+          - Stack: systemctl --user status paperless-stack.target
+          - Individual: systemctl --user status paperless-webserver
+          - Restart all: systemctl --user restart paperless-stack.target
+
+          {% if containers_to_update | default([]) | length > 0 %}
+          Rollback (if needed):
+          1. Stop stack: systemctl --user stop paperless-stack.target
+          2. Restore data: sudo rsync -av /opt/container-backups/paperless-stack/backup-{{ backup_timestamp }}/ {{ paperless_data_dir }}/
+          3. Start stack: systemctl --user start paperless-stack.target
+          {% endif %}

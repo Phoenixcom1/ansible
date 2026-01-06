@@ -1,0 +1,30 @@
+# paperless-gotenberg.container
+# Managed by Ansible - Podman Quadlet for Paperless Gotenberg service
+# https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html
+#
+# AUTO-UPDATE DISABLED: Manual updates only for safety (dependencies between services)
+# Use update-container.yml playbook to safely update containers
+
+[Unit]
+Description=Paperless Gotenberg PDF Service
+Documentation=https://gotenberg.dev/
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=docker.io/gotenberg/gotenberg:latest
+# AutoUpdate intentionally disabled for manual control
+ContainerName=paperless-gotenberg
+
+# Network (isolated)
+Network={{ paperless_network }}
+
+# Command with gotenberg-specific flags
+Exec=gotenberg --chromium-disable-javascript={{ gotenberg_chromium_disable_javascript | lower }} --chromium-allow-list={{ gotenberg_chromium_allow_list }} --libreoffice-disable-routes={{ gotenberg_libreoffice_disable_routes | lower }} --libreoffice-auto-start={{ gotenberg_libreoffice_auto_start | lower }} --libreoffice-start-timeout={{ gotenberg_libreoffice_start_timeout }} --api-timeout={{ gotenberg_api_timeout }}
+
+[Service]
+Restart=unless-stopped
+TimeoutStopSec=70
+
+[Install]
+WantedBy=default.target
