@@ -1,5 +1,129 @@
 ---
-# Frigate NVR service deployment
+# Frigate NVR service deployment using Podman quadlet approach
+
+# Discover podman user's UID and GID
+- name: Get podman user info
+  getent:
+    database: passwd
+    key: "{{ podman_user }}"
+  register: podman_user_info
+  changed_when: false
+
+- name: Extract podman user UID and GID
+  set_fact:
+    podman_user_uid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][1] }}"
+    podman_user_gid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][2] }}"
+  when: podman_user in podman_user_info.ansible_facts.getent_passwd
+
+# Discover GPU-related groups for hardware acceleration
+- name: Get video group info
+  getent:
+    database: group
+    key: video
+  register: video_group_info
+  changed_when: false
+
+- name: Get render group info
+  getent:
+    database: group
+    key: render
+  register: render_group_info
+  changed_when: false
+
+- name: Extract video and render GIDs
+  set_fact:
+    video_gid: "{{ video_group_info.ansible_facts.getent_group.video[1] }}"
+    render_gid: "{{ render_group_info.ansible_facts.getent_group.render[1] }}"
+
+- name: Add podman user to video group
+  user:
+    name: "{{ podman_user }}"
+    groups: video
+    append: yes
+  become: true
+
+- name: Add podman user to render group
+  user:
+    name: "{{ podman_user }}"
+    groups: render
+    append: yes
+  become: true
+
+# Load camera credentials from .env file on target (if exists)
+- name: Check if frigate .env file exists on target
+  stat:
+    path: "{{ frigate_config_dir }}/frigate.env"
+  register: frigate_env_file
+
+- name: Register warning if frigate.env file is missing
+  set_fact:
+    frigate_env_missing: true
+  when: not frigate_env_file.stat.exists
+
+- name: Display warning if frigate.env file is missing
+  debug:
+    msg: |
+      ⚠️  WARNING: frigate.env file not found at {{ frigate_config_dir }}/frigate.env
+      Camera credentials will use defaults from defaults/main.yml
+      To set credentials, create {{ frigate_config_dir }}/frigate.env with:
+        FRIGATE_CAMERA_USER=your_user
+        FRIGATE_CAMERA_PASSWORD=your_password
+        FRIGATE_CAMERA_IP=192.168.x.x
+  when: not frigate_env_file.stat.exists
+  failed_when: not frigate_env_file.stat.exists
+  ignore_errors: true
+
+- name: Read frigate .env file from target
+  slurp:
+    src: "{{ frigate_config_dir }}/frigate.env"
+  register: frigate_env_content
+  when: frigate_env_file.stat.exists
+  no_log: true
+
+- name: Parse .env file and set variables
+  set_fact:
+    frigate_camera_user: "{{ frigate_env_content.content | b64decode | regex_search('FRIGATE_CAMERA_USER=(.+)', '\\1') | first | default(frigate_camera_user) }}"
+    frigate_camera_password: "{{ frigate_env_content.content | b64decode | regex_search('FRIGATE_CAMERA_PASSWORD=(.+)', '\\1') | first | default(frigate_camera_password) }}"
+    frigate_camera_ip: "{{ frigate_env_content.content | b64decode | regex_search('FRIGATE_CAMERA_IP=(.+)', '\\1') | first | default(frigate_camera_ip) }}"
+  when: frigate_env_file.stat.exists
+  no_log: true
+
+# Get subordinate GID range for podman user
+- name: Get subordinate GID range for podman user
+  shell: "awk -F: '/^{{ podman_user }}:/ {print $2}' /etc/subgid | head -1"
+  register: subgid_start
+  changed_when: false
+  check_mode: false
+
+- name: Set subordinate GID start
+  set_fact:
+    podman_subgid_start: "{{ subgid_start.stdout | int }}"
+
+# Configure subordinate GIDs for GPU access
+- name: Add video group to podman user's subordinate GIDs
+  lineinfile:
+    path: /etc/subgid
+    line: "{{ podman_user }}:{{ video_gid }}:1"
+    state: present
+  become: true
+  register: subgid_changed_video
+
+- name: Add render group to podman user's subordinate GIDs
+  lineinfile:
+    path: /etc/subgid
+    line: "{{ podman_user }}:{{ render_gid }}:1"
+    state: present
+  become: true
+  register: subgid_changed_render
+
+# Migrate podman user namespace if subgid changed
+- name: Run podman system migrate to apply new subordinate GID mappings
+  command: podman system migrate
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  when: subgid_changed_video.changed or subgid_changed_render.changed
 
 # Create project directories
 - name: Create frigate repo directory
@@ -29,59 +153,77 @@
     mode: "0755"
   become: true
 
-# Deploy nginx reverse proxy configuration
-- name: Deploy frigate nginx configuration
+# Deploy Frigate config file
+- name: Deploy Frigate config.yaml
   template:
-    src: frigate.conf.j2
-    dest: /etc/nginx/sites-available/frigate.conf
-    owner: root
-    group: root
-    mode: "0644"
-  become: true
-  notify: Reload nginx
-
-- name: Enable frigate nginx site
-  file:
-    src: /etc/nginx/sites-available/frigate.conf
-    dest: /etc/nginx/sites-enabled/frigate.conf
-    state: link
-  become: true
-  notify: Reload nginx
-
-# Template the compose file
-- name: Template frigate compose file
-  template:
-    src: "{{ frigate_compose_template }}"
-    dest: "{{ frigate_repo_path }}/{{ frigate_compose_file }}"
+    src: config.yml.j2
+    dest: "{{ frigate_config_dir }}/config.yaml"
     owner: "{{ podman_user }}"
     group: "{{ podman_user }}"
     mode: "0644"
   become: true
+  no_log: true
 
-# Stop existing frigate services
-- name: Remove existing frigate containers if present
-  command: >
-    /usr/bin/podman-compose
-    -f {{ frigate_repo_path }}/{{ frigate_compose_file }}
-    --project-name {{ frigate_project_name }}
-    down --remove-orphans
+# Create Quadlet directory (Podman systemd units)
+- name: Create Quadlet directory for podman user
+  file:
+    path: "/home/{{ podman_user }}/.config/containers/systemd"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
   become: true
-  become_user: "{{ podman_user }}"
+
+# Deploy Quadlet container file
+- name: Deploy frigate Quadlet file
+  template:
+    src: "{{ frigate_quadlet_template }}"
+    dest: "{{ podman_containers_systemd_dir }}/{{ frigate_quadlet_file }}"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: quadlet_deployed
+
+# Enable lingering for podman user (allows user services to run without login)
+- name: Enable lingering for podman user
+  command: loginctl enable-linger {{ podman_user }}
+  become: true
   changed_when: false
-  ignore_errors: true
 
-# Start frigate service
-- name: Deploy frigate container via podman-compose
-  command: >
-    podman-compose
-    -f {{ frigate_repo_path }}/{{ frigate_compose_file }}
-    --project-name {{ frigate_project_name }}
-    up -d
+# Reload systemd daemon to pick up Quadlet changes
+- name: Reload systemd user daemon (Quadlet generation)
+  systemd:
+    daemon_reload: yes
+    scope: user
   become: true
   become_user: "{{ podman_user }}"
-  register: frigate_compose_result
-  changed_when: "'created' in frigate_compose_result.stdout or 'started' in frigate_compose_result.stdout"
-  until: frigate_compose_result.rc == 0
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+
+# Restart service if Quadlet changed, otherwise ensure it's enabled and started
+- name: Restart frigate service (Quadlet changed)
+  systemd:
+    name: frigate
+    state: restarted
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  when: quadlet_deployed.changed
+
+- name: Ensure frigate service is enabled and started
+  systemd:
+    name: frigate
+    enabled: yes
+    state: started
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  when: not quadlet_deployed.changed
 
 # Wait for frigate to be ready
 - name: Wait for frigate to be ready
@@ -93,3 +235,19 @@
   retries: 15
   delay: 2
   ignore_errors: true
+
+# Deploy nginx reverse proxy configuration
+- name: Ensure nginx conf.d directory exists
+  file:
+    path: /etc/nginx/conf.d
+    state: directory
+    mode: 0755
+  become: true
+
+- name: Deploy frigate nginx reverse proxy config
+  template:
+    src: frigate.conf.j2
+    dest: /etc/nginx/conf.d/frigate.conf
+    mode: "0644"
+  notify: reload nginx
+  become: true

@@ -1,0 +1,49 @@
+# Frigate Configuration
+# Managed by Ansible - customize as needed
+
+# Hardware acceleration for Intel Quick Sync
+ffmpeg:
+  hwaccel_args: preset-vaapi
+  input_args: preset-rtsp-generic
+#  output_args:
+#    record: preset-record-generic-audio-copy
+#
+## Explicitly set VAAPI device
+#detectors:
+#  default:
+#    type: cpu
+
+mqtt:
+  enabled: false
+
+# go2rtc configuration for RTSP restream
+go2rtc:
+  streams:
+    BabyCam:
+      - rtsp://{{ frigate_camera_user }}:{{ frigate_camera_password }}@{{ frigate_camera_ip }}/live0
+    BabyCam_low:
+      - "ffmpeg:rtsp://{{ frigate_camera_user }}:{{ frigate_camera_password }}@{{ frigate_camera_ip }}/live0#video=h264#width=640#height=480#bitrate=500k"
+
+# Database
+database:
+  path: /config/frigate.db
+
+# Cameras configuration (example - customize for your cameras)
+cameras:
+  BabyCam:
+    enabled: true
+    ffmpeg:
+      inputs:
+        - path: rtsp://{{ frigate_camera_user }}:{{ frigate_camera_password }}@{{ frigate_camera_ip }}/live0
+          roles:
+            - restream
+    detect:
+      enabled: false
+      width: 640  # Lower resolution = much less CPU
+      height: 480
+      fps: 5
+
+detect:
+  enabled: true
+
+version: 0.16-0

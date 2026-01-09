@@ -39,3 +39,6 @@ services:
     environment:
       FRIGATE_RTSP_PASSWORD: "{{ frigate_rtsp_password }}"
       FRIGATE_ALLOWED_HOSTS: "{{ frigate_domain }}"
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128  # Intel hardware acceleration (render node)
+      - /dev/dri/card0:/dev/dri/card0  # Intel hardware acceleration (card node)

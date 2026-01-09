@@ -1,0 +1,66 @@
+# Frigate NVR Container Quadlet Configuration
+#
+# This file is managed by Ansible - DO NOT EDIT MANUALLY
+# Role: deploy_frigate_container
+#
+# PRIVILEGED MODE EXPLANATION:
+# Frigate requires privileged mode for several reasons:
+# 1. Hardware Access: Direct access to GPU/video devices for hardware acceleration
+#    (Intel Quick Sync, NVIDIA, etc.)
+# 2. System Resources: Access to /dev/shm for shared memory between processes
+# 3. Process Management: Ability to manage child processes (ffmpeg, detector processes)
+#    and set process priorities/nice values for performance optimization
+#
+# Note: In rootless Podman, "privileged" means privileged within the user namespace,
+# not true root privileges on the host system.
+
+[Unit]
+Description=Frigate NVR Container
+Documentation=https://docs.frigate.video/
+# default.target to wait until the user session is fully initialized to have propper user namespaces
+After=network-online.target default.targe
+Wants=network-online.target
+
+[Container]
+Image=ghcr.io/blakeblackshear/frigate:stable
+AutoUpdate=registry
+ContainerName=frigate
+
+# Disable SELinux labeling for device access
+SecurityLabelDisable=true
+
+# GPU device passthrough
+AddDevice=/dev/dri/renderD128
+AddDevice=/dev/dri/card0
+
+# Volumes
+Volume=/etc/localtime:/etc/localtime:ro
+Volume={{ frigate_config_dir }}:/config:Z
+Volume={{ frigate_media_dir }}:/media/frigate:Z
+
+# Tmpfs for cache
+Tmpfs=/tmp/cache:size={{ frigate_tmpfs_size }}
+
+# Shared memory and GID mapping for GPU access
+# Maps host groups video({{ video_gid }}) and render({{ render_gid }}) into container namespace
+# Intermediate namespace: GID 1->video({{ video_gid }}), GID 2->render({{ render_gid }})
+# Container GIDs map to intermediate GIDs, which map to host GIDs
+PodmanArgs=--shm-size={{ frigate_shm_size }} --gidmap=0:0:1 --gidmap=1:3:{{ video_gid | int - 1 }} --gidmap={{ video_gid }}:1:1 --gidmap={{ video_gid | int + 1 }}:{{ video_gid | int + 2 }}:{{ render_gid | int - video_gid | int - 1 }} --gidmap={{ render_gid }}:2:1 --gidmap={{ render_gid | int + 1 }}:{{ render_gid | int + 1 }}:{{ 65536 - render_gid | int }} --group-add={{ video_gid }} --group-add={{ render_gid }}
+
+# Network ports
+PublishPort=127.0.0.1:{{ frigate_port }}:{{ frigate_internal_port }}
+PublishPort={{ frigate_rtsp_port }}:8554
+PublishPort={{ frigate_webrtc_tcp_port }}:8555/tcp
+PublishPort={{ frigate_webrtc_udp_port }}:8555/udp
+
+# Environment variables
+Environment=FRIGATE_RTSP_PASSWORD={{ frigate_rtsp_password }}
+Environment=FRIGATE_ALLOWED_HOSTS={{ frigate_domain }}
+#Environment=LIBVA_DRIVER_NAME=iHD
+
+[Service]
+Restart=unless-stopped
+TimeoutStopSec={{ frigate_stop_grace_period | regex_replace('s$', '') }}
+
+[Install]
+WantedBy=default.target

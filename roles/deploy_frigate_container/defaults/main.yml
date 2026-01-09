@@ -1,11 +1,19 @@
 ---
 # Frigate NVR service deployment configuration
 
-# Compose file settings
+# Podman user configuration
+podman_user: "{{ podman_username }}"
+podman_containers_systemd_dir: "/home/{{ podman_username }}/.config/containers/systemd"
+
+# Quadlet file settings
 frigate_project_name: frigate
+frigate_quadlet_file: frigate.container
+frigate_quadlet_template: frigate.container.j2
+frigate_repo_path: "{{ podman_service_dir }}/{{ frigate_project_name }}"
+
+# Legacy compose file settings (deprecated, keeping for reference)
 frigate_compose_file: compose_frigate.yml
 frigate_compose_template: compose_frigate.yml.j2
-frigate_repo_path: "{{ podman_service_dir }}/{{ frigate_project_name }}"
 
 # Volume and config paths
 frigate_config_dir: "{{ podman_service_dir }}/{{ frigate_project_name }}/config"
@@ -14,7 +22,7 @@ frigate_media_dir: "{{ podman_service_dir }}/{{ frigate_project_name }}/media"
 # Frigate application settings
 frigate_domain: "frigate.kerberos.fassbender.contact"
 frigate_port: 8971
-frigate_internal_port: 5000  # Internal HTTP API port (not the HTTPS nginx port 8971)
+frigate_internal_port: 5000 # Internal HTTP API port (not the HTTPS nginx port 8971)
 frigate_rtsp_port: 8554
 frigate_webrtc_tcp_port: 8555
 frigate_webrtc_udp_port: 8555
@@ -26,6 +34,3 @@ frigate_stop_grace_period: 30s
 
 # Environment variables
 frigate_rtsp_password: "password" # Change this!
-
-# Podman user
-podman_user: "{{ podman_username }}"

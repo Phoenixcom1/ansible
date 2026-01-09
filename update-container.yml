@@ -57,27 +57,23 @@
         msg: "Container '{{ container_name }}' not found"
       when: container_name not in container_check.stdout
 
-    - name: Get current image ID
-      command: podman inspect {{ container_name }} --format {% raw %}'{{.Image}}'{% endraw %}
+    - name: Get current container image info (ID and name)
+      command: podman inspect {{ container_name }} --format {% raw %}'{{.Image}}|{{.ImageName}}'{% endraw %}
       become: true
       become_user: "{{ podman_user }}"
-      register: current_image
+      register: container_image_info
       changed_when: false
+
+    - name: Extract image ID and name
+      set_fact:
+        current_image_id: "{{ container_image_info.stdout.split('|')[0] }}"
+        current_image_name: "{{ container_image_info.stdout.split('|')[1] }}"
 
     - name: Display current image
       debug:
-        msg: "Current image ID: {{ current_image.stdout }}"
-
-    - name: Get container image name from container config
-      command: podman inspect {{ container_name }} --format {% raw %}'{{.ImageName}}'{% endraw %}
-      become: true
-      become_user: "{{ podman_user }}"
-      register: current_image_info
-      changed_when: false
-
-    - name: Display current image info
-      debug:
-        msg: "Current image: {{ current_image_info.stdout }}"
+        msg: |
+          Current image ID: {{ current_image_id }}
+          Current image name: {{ current_image_name }}
 
     # Backup phase
     - name: Backup container data (if enabled)
@@ -130,24 +126,34 @@
       when: backup_enabled | bool
 
     # Update phase
-    - name: Extract base image name
+    - name: Extract base image name (without tag)
       set_fact:
-        base_image_name: "{{ current_image_info.stdout | regex_replace(':.*$', '') }}"
+        base_image_name: "{{ current_image_name | regex_replace(':.*$', '') }}"
 
     - name: Pull new image
       command: podman pull {{ base_image_name }}:{{ new_image_tag }}
       become: true
       become_user: "{{ podman_user }}"
       register: pull_result
-      changed_when: "'Downloaded newer image' in pull_result.stdout or 'Storing signatures' in pull_result.stderr"
+      changed_when: false
 
-    - name: Display pull result
-      debug:
-        msg: "{{ pull_result.stdout }}"
+    - name: Get new image ID from pulled image
+      command: podman inspect {{ base_image_name }}:{{ new_image_tag }} --format {% raw %}'{{.Id}}'{% endraw %}
+      become: true
+      become_user: "{{ podman_user }}"
+      register: new_image_id_result
+      changed_when: false
 
-    - name: Check if new image is different
+    - name: Check if image changed
       set_fact:
-        image_changed: "{{ pull_result.changed }}"
+        image_changed: "{{ current_image_id != new_image_id_result.stdout }}"
+
+    - name: Display update status
+      debug:
+        msg: |
+          Old image ID: {{ current_image_id[:12] }}
+          New image ID: {{ new_image_id_result.stdout[:12] }}
+          Update needed: {{ image_changed }}
 
     - name: Stop container for update
       systemd:
@@ -204,15 +210,7 @@
     - name: Display health check result
       debug:
         msg: "Health check: {{ 'PASSED' if health_check.rc == 0 else 'FAILED' }}"
-      when: not skip_health_check | bool and image_changed
-
-    - name: Get new image ID
-      command: podman inspect {{ container_name }} --format {% raw %}'{{.Image}}'{% endraw %}
-      become: true
-      become_user: "{{ podman_user }}"
-      register: new_image
-      changed_when: false
-      when: image_changed
+      when: not skip_health_check | bool and image_changed and health_check is defined
 
     - name: Display update summary
       debug:
@@ -220,20 +218,20 @@
           Container Update Summary:
           =========================
           Container: {{ container_name }}
-          Old Image ID: {{ current_image.stdout[:12] }}
-          New Image ID: {{ new_image.stdout[:12] if image_changed else current_image.stdout[:12] }}
+          Old Image ID: {{ current_image_id[:12] }}
+          New Image ID: {{ new_image_id_result.stdout[:12] }}
           Status: {{ 'UPDATED' if image_changed else 'NO CHANGES' }}
-          Health: {{ 'HEALTHY' if (image_changed and not skip_health_check and health_check.rc == 0) else ('SKIPPED' if not image_changed else 'CHECK MANUALLY') }}
+          Health: {{ 'HEALTHY' if (image_changed and not skip_health_check and health_check is defined and health_check.rc == 0) else ('SKIPPED' if not image_changed else 'CHECK MANUALLY') }}
 
-          {% if backup_enabled %}
+          {% if backup_enabled and image_changed %}
           Backup Location: /opt/container-backups/{{ container_name }}/backup-{{ backup_timestamp }}/
           {% endif %}
 
           {% if image_changed %}
           Rollback Command (if needed):
-          sudo -u {{ podman_user }} podman stop {{ container_name }}
-          sudo -u {{ podman_user }} podman rm {{ container_name }}
-          sudo -u {{ podman_user }} podman run --replace --name {{ container_name }} {{ current_image.stdout }}
+          1. Stop container: systemctl --user stop {{ container_name }}
+          2. Restore backup: sudo rsync -av /opt/container-backups/{{ container_name }}/backup-{{ backup_timestamp }}/ {{ podman_service_dir }}/{{ container_name }}/
+          3. Start container: systemctl --user start {{ container_name }}
           {% endif %}
 
     - name: Prompt for cleanup of old images

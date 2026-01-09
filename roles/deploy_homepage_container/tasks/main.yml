@@ -1,5 +1,5 @@
 ---
-# Homepage service deployment using Podman systemd approach
+# Homepage service deployment using Podman quadlet approach
 
 # Discover podman user's UID and GID
 - name: Get podman user info
