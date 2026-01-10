@@ -8,6 +8,8 @@ Deploys Immich photo and video management platform using **Podman Quadlets** wit
 - PostgreSQL database with optimized settings
 - Redis cache for performance
 - Machine learning for face recognition and object detection
+- **Hardware acceleration** for video transcoding (Intel Quick Sync/VAAPI)
+- **Hardware-accelerated ML** with OpenVINO (Intel GPU)
 - Background microservices for processing
 - **Podman Quadlet** for modern systemd integration
 - **Automatic container updates** via `AutoUpdate=registry`
@@ -252,6 +254,112 @@ immich_ml_model_ttl: 600 # Keep models loaded longer (seconds)
 
 **Note:** Each ML worker uses ~2GB RAM. Monitor memory usage when increasing workers.
 
+## Hardware Acceleration
+
+### Overview
+
+The role automatically configures hardware acceleration for:
+
+- **Video transcoding**: Uses Intel Quick Sync (QSV) or VAAPI for encoding/decoding
+- **Machine learning**: Uses OpenVINO for GPU-accelerated face detection, object recognition, and smart search
+
+### Prerequisites
+
+- Intel CPU with integrated GPU (6th gen or newer recommended)
+- Host drivers installed: `intel-media-va-driver`, `libva`, `intel-gpu-tools`
+- Podman user added to `video` and `render` groups (handled automatically by role)
+
+### How It Works
+
+**Video Transcoding (immich-server, immich-microservices):**
+
+- Containers access `/dev/dri` for GPU hardware
+- GID mapping ensures proper permissions in rootless Podman
+- Must be **enabled in Immich web UI**: Administration → Video Transcoding Settings → Hardware Acceleration → Select "Quick Sync (QSV)" or "VAAPI"
+
+**Machine Learning (immich-machine-learning):**
+
+- Uses `-openvino` tagged image with Intel GPU support
+- Automatically enabled when role deploys containers
+- Significantly faster face detection and smart search
+
+### Configuration
+
+Hardware acceleration is **enabled by default** in the Quadlet templates. The role automatically:
+
+1. Adds the podman user to `video` and `render` groups
+2. Passes `/dev/dri` device to containers
+3. Configures GID mapping for proper GPU access in rootless Podman
+4. Uses OpenVINO-tagged ML image for GPU acceleration
+
+**No manual configuration needed** - just deploy and enable in the web UI for transcoding.
+
+### Verification
+
+**Check device access:**
+
+```bash
+podman exec -it immich-server ls -l /dev/dri
+podman exec -it immich-machine-learning ls -l /dev/dri
+```
+
+**Monitor GPU usage:**
+
+```bash
+intel_gpu_top
+```
+
+**Check logs for hardware acceleration:**
+
+```bash
+# Video transcoding
+journalctl --user -u immich-microservices | grep -i vaapi
+
+# Machine learning
+journalctl --user -u immich-machine-learning | grep -i openvino
+```
+
+You should see messages like:
+
+- `Transcoding video ... with VAAPI-accelerated encoding`
+- `Available ORT providers` containing `OpenVINOExecutionProvider`
+
+### Troubleshooting Hardware Acceleration
+
+**Video transcoding says "without hardware acceleration":**
+
+- Check that you've enabled it in the Immich web UI (Administration → Video Transcoding Settings)
+- Verify `/dev/dri` is accessible in the container
+- Check that podman user is in video and render groups: `groups podman`
+
+**GPU not being used:**
+
+```bash
+# Check group membership
+getent group video
+getent group render
+
+# Check device permissions in container
+podman exec -it immich-server ls -l /dev/dri
+
+# Monitor GPU usage during transcoding/ML job
+intel_gpu_top
+```
+
+**For older CPUs or different hardware:**
+
+- Modify the Quadlet templates to use different acceleration (e.g., NVIDIA)
+- See [Immich Hardware Transcoding Docs](https://docs.immich.app/features/hardware-transcoding)
+- See [Immich ML Hardware Acceleration Docs](https://docs.immich.app/features/ml-hardware-acceleration)
+
+### Disabling Hardware Acceleration
+
+If you need to disable hardware acceleration:
+
+1. **For transcoding**: Set to "Disabled" in Immich web UI
+2. **For ML**: Change the machine learning image from `-openvino` to standard (remove `-openvino` suffix from template)
+3. **Remove device access**: Comment out `AddDevice=/dev/dri` lines in Quadlet templates
+
 ## Service Management
 
 ### Check Status
@@ -443,6 +551,7 @@ Data directories should be owned by the mapped host UID (e.g., 297607) correspon
 - Nginx installed
 - At least 4GB RAM (8GB+ recommended with ML enabled)
 - 20GB+ storage for photos/videos
+- **Optional for hardware acceleration**: Intel CPU with integrated GPU (6th gen+), host drivers installed
 
 ## Example Playbook
 
@@ -466,5 +575,7 @@ Data directories should be owned by the mapped host UID (e.g., 297607) correspon
 ## References
 
 - [Immich Documentation](https://immich.app/docs)
+- [Immich Hardware Transcoding](https://docs.immich.app/features/hardware-transcoding)
+- [Immich ML Hardware Acceleration](https://docs.immich.app/features/ml-hardware-acceleration)
 - [Podman Quadlets](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html)
 - [PostgreSQL Performance Tuning](https://pgtune.leopard.in.ua/)
