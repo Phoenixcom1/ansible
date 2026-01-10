@@ -35,14 +35,29 @@ Environment=IMMICH_SERVER_URL=http://{{ immich_server_container }}:{{ immich_int
 # Feature flags
 Environment=IMMICH_MACHINE_LEARNING_URL=http://{{ immich_ml_container }}:3003
 {% if immich_disable_machine_learning %}
-Environment=DISABLE_MACHINE_LEARNING=true
+Environment=DISABLE_MACHINE_LEARNING=false
 {% endif %}
 {% if immich_disable_reverse_geocoding %}
-Environment=DISABLE_REVERSE_GEOCODING=true
+Environment=DISABLE_REVERSE_GEOCODING=false
 {% endif %}
 
 # Upload settings
 Environment=UPLOAD_LOCATION={{ immich_upload_dir }}
+
+# Hardware acceleration (HWACC)
+AddDevice=/dev/dri
+Environment=IMMICH_HWACCEL=true
+# For NVIDIA, uncomment the following lines:
+# AddDevice=/dev/nvidia0
+# AddDevice=/dev/nvidiactl
+# AddDevice=/dev/nvidia-uvm
+# Runtime=nvidia
+
+# GID mapping for GPU access
+# Maps host groups video({{ video_gid }}) and render({{ render_gid }}) into container namespace
+# Intermediate namespace: GID 1->video({{ video_gid }}), GID 2->render({{ render_gid }})
+# Container GIDs map to intermediate GIDs, which map to host GIDs
+PodmanArgs=--gidmap=0:0:1 --gidmap=1:3:{{ video_gid | int - 1 }} --gidmap={{ video_gid }}:1:1 --gidmap={{ video_gid | int + 1 }}:{{ video_gid | int + 2 }}:{{ render_gid | int - video_gid | int - 1 }} --gidmap={{ render_gid }}:2:1 --gidmap={{ render_gid | int + 1 }}:{{ render_gid | int + 1 }}:{{ 65536 - render_gid | int }} --group-add={{ video_gid }} --group-add={{ render_gid }}
 
 # Volumes
 Volume={{ immich_upload_dir }}:/usr/src/app/upload:Z

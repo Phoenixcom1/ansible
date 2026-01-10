@@ -19,6 +19,40 @@
   debug:
     msg: "Podman user '{{ podman_user }}' has UID={{ immich_uid }} GID={{ immich_gid }}"
 
+# Hardware acceleration: ensure podman user is in video and render groups
+- name: Get video group info
+  getent:
+    database: group
+    key: video
+  register: video_group_info
+  changed_when: false
+
+- name: Get render group info
+  getent:
+    database: group
+    key: render
+  register: render_group_info
+  changed_when: false
+
+- name: Extract video and render GIDs
+  set_fact:
+    video_gid: "{{ video_group_info.ansible_facts.getent_group.video[1] }}"
+    render_gid: "{{ render_group_info.ansible_facts.getent_group.render[1] }}"
+
+- name: Add podman user to video group
+  user:
+    name: "{{ podman_user }}"
+    groups: video
+    append: yes
+  become: true
+
+- name: Add podman user to render group
+  user:
+    name: "{{ podman_user }}"
+    groups: render
+    append: yes
+  become: true
+
 # Calculate host UID for network mount (if enabled)
 - name: Get subordinate UID range for podman user
   shell: "awk -F: '/^{{ podman_user }}:/ {print $2}' /etc/subuid"
