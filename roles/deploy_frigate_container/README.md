@@ -5,6 +5,7 @@ Ansible role for deploying Frigate NVR (Network Video Recorder) with hardware ac
 ## Overview
 
 Frigate is an open-source NVR with real-time AI object detection. This role deploys Frigate with:
+
 - Intel Quick Sync hardware acceleration (VAAPI)
 - GPU device passthrough for efficient video processing
 - go2rtc for RTSP restreaming
@@ -35,10 +36,12 @@ Frigate is an open-source NVR with real-time AI object detection. This role depl
 ### Intel Quick Sync Support
 
 This role requires an Intel CPU with Quick Sync Video support:
+
 - Intel 6th generation (Skylake) or newer
 - Integrated graphics enabled in BIOS
 
 Verify hardware support:
+
 ```bash
 # Check for Intel GPU
 lspci | grep -i vga
@@ -63,6 +66,7 @@ Rootless Podman uses user namespaces to map host UIDs/GIDs to container UIDs/GID
 ### The Solution
 
 #### Step 1: Add podman user to host groups
+
 ```yaml
 - name: Add podman user to video group
   user:
@@ -78,7 +82,9 @@ Rootless Podman uses user namespaces to map host UIDs/GIDs to container UIDs/GID
 ```
 
 #### Step 2: Configure subordinate GIDs
+
 Add specific host GIDs to `/etc/subgid` so podman can delegate them:
+
 ```
 podman:296608:65536   # Main subordinate range
 podman:44:1            # Delegate video group
@@ -90,6 +96,7 @@ This tells the system that the `podman` user is allowed to use host GIDs 44 and 
 #### Step 3: Create intermediate namespace mapping
 
 After `podman system migrate`, the intermediate namespace looks like:
+
 ```
 Intermediate GID  →  Host GID
 0                 →  1003 (podman user's GID)
@@ -101,6 +108,7 @@ Intermediate GID  →  Host GID
 #### Step 4: Map container GIDs to intermediate GIDs
 
 In the Quadlet file, we use `--gidmap` to map container GIDs to the intermediate namespace:
+
 ```ini
 PodmanArgs=--shm-size=512mb \
   --gidmap=0:0:1 \
@@ -114,6 +122,7 @@ PodmanArgs=--shm-size=512mb \
 ```
 
 Breaking this down:
+
 - `--gidmap=0:0:1`: Container root (0) → Intermediate 0 (podman user)
 - `--gidmap=1:3:43`: Container 1-43 → Intermediate 3-45 (subordinate range)
 - `--gidmap=44:1:1`: Container 44 → Intermediate 1 (**this is video!**)
@@ -124,6 +133,7 @@ Breaking this down:
 #### Step 5: Add process to groups
 
 **Critical**: Use container GIDs that map to the intermediate namespace:
+
 ```ini
 --group-add=44 --group-add=993
 ```
@@ -133,6 +143,7 @@ The `--gidmap` configuration maps container GID 44 → intermediate GID 1 (video
 ### Why This Is Necessary
 
 Without proper mapping:
+
 ```bash
 # Inside container without mapping
 $ ls -ln /dev/dri/
@@ -155,6 +166,7 @@ The process (groups 1,2) can now access devices (owned by GID 1,2).
 ### The Problem
 
 After a system reboot, Frigate failed to start with:
+
 ```
 [AVHWDeviceContext @ 0x...] No VA display found for device /dev/dri/renderD128.
 Device creation failed: -22.
@@ -165,6 +177,7 @@ The user namespace wasn't being rebuilt with the current `/etc/subgid` configura
 ### The Solution
 
 Add systemd ordering to ensure proper initialization:
+
 ```ini
 [Unit]
 After=network-online.target default.target
@@ -177,6 +190,7 @@ The `After=default.target` ensures Frigate waits until the user's session is ful
 ### 1. Create camera credentials file
 
 On the target host, create `/opt/podman/frigate/config/frigate.env`:
+
 ```bash
 FRIGATE_CAMERA_USER=admin
 FRIGATE_CAMERA_PASSWORD=your_password
@@ -192,6 +206,7 @@ FRIGATE_CAMERA_IP=192.168.107.11
 ```
 
 Or standalone:
+
 ```bash
 ansible-playbook -i inventory deploy_frigate.yml
 ```
@@ -210,13 +225,13 @@ frigate_media_dir: "/opt/podman/frigate/media"
 
 # Network
 frigate_domain: "frigate.example.com"
-frigate_port: 8971              # Web UI (proxied via nginx)
-frigate_rtsp_port: 8554         # RTSP restream
-frigate_webrtc_tcp_port: 8555   # WebRTC
+frigate_port: 8971 # Web UI (proxied via nginx)
+frigate_rtsp_port: 8554 # RTSP restream
+frigate_webrtc_tcp_port: 8555 # WebRTC
 
 # Container resources
 frigate_shm_size: "512mb"
-frigate_tmpfs_size: 1000000000  # 1GB for /tmp/cache
+frigate_tmpfs_size: 1000000000 # 1GB for /tmp/cache
 ```
 
 ### Camera Configuration
@@ -224,10 +239,12 @@ frigate_tmpfs_size: 1000000000  # 1GB for /tmp/cache
 Edit the deployed config at `/opt/podman/frigate/config/config.yaml` or customize the template.
 
 The role creates two go2rtc streams:
+
 - `BabyCam`: Full resolution (1920x1080)
 - `BabyCam_low`: Lower resolution for mobile (640x480 @ 500kbps)
 
 Access streams at:
+
 - `rtsp://192.168.1.118:8554/BabyCam`
 - `rtsp://192.168.1.118:8554/BabyCam_low`
 
@@ -288,6 +305,7 @@ podman logs frigate 2>&1 | grep -i "vaapi\|hwaccel"
 ```
 
 Expected in ffmpeg command:
+
 ```
 -hwaccel vaapi -hwaccel_device /dev/dri/renderD128 -hwaccel_output_format vaapi
 ```
@@ -329,12 +347,15 @@ Open `https://frigate.example.com` in your browser.
 **Error**: `No VA display found for device /dev/dri/renderD128`
 
 **Solutions**:
+
 1. Check device exists:
+
    ```bash
    ls -la /dev/dri/renderD128
    ```
 
 2. Verify group membership:
+
    ```bash
    getent group video
    getent group render
@@ -342,12 +363,14 @@ Open `https://frigate.example.com` in your browser.
    ```
 
 3. Check subordinate GIDs:
+
    ```bash
    cat /etc/subgid | grep podman
    # Should include: podman:44:1 and podman:993:1
    ```
 
 4. Verify intermediate namespace:
+
    ```bash
    podman unshare cat /proc/self/gid_map
    # Should show:
@@ -358,6 +381,7 @@ Open `https://frigate.example.com` in your browser.
    ```
 
 5. Check container group membership:
+
    ```bash
    podman exec frigate id
    # Should show: groups=0(root),1,2
@@ -375,13 +399,16 @@ Open `https://frigate.example.com` in your browser.
 **Error**: `Connection refused` or `404 Stream Not Found`
 
 **Solutions**:
+
 1. Verify camera IP and RTSP path:
+
    ```bash
    # Test from docker-vm
    ffmpeg -rtsp_transport tcp -i rtsp://user:pass@192.168.107.11/live0 -frames:v 1 test.jpg
    ```
 
 2. Common RTSP paths by manufacturer:
+
    - Generic: `/live0`, `/stream1`, `/h264`
    - Hikvision: `/Streaming/Channels/101`
    - Dahua: `/cam/realmonitor?channel=1&subtype=0`
@@ -398,18 +425,22 @@ Open `https://frigate.example.com` in your browser.
 ### High CPU usage
 
 **Causes**:
+
 - Detection running at full resolution
 - No hardware acceleration
 - CPU-based object detection
 
 **Solutions**:
+
 1. Disable detection if not needed:
+
    ```yaml
    detect:
      enabled: false
    ```
 
 2. Use lower resolution for detection:
+
    ```yaml
    detect:
      width: 640
@@ -423,6 +454,7 @@ Open `https://frigate.example.com` in your browser.
 **Error**: ffmpeg fails immediately on boot
 
 **Solution**: Already implemented with `After=default.target`. If still occurring:
+
 ```bash
 # Manually migrate namespace
 systemctl --user stop frigate
@@ -435,6 +467,7 @@ systemctl --user start frigate
 ### Mobile WebRTC lag
 
 **Solution**: Use the low-resolution stream:
+
 - In Home Assistant or mobile app, change stream URL to use `BabyCam_low`
 - Or configure your camera's substream directly if available
 
@@ -443,6 +476,7 @@ systemctl --user start frigate
 ### 1. Configure go2rtc in Home Assistant
 
 Add to Home Assistant's `configuration.yaml`:
+
 ```yaml
 go2rtc:
   streams:
@@ -456,12 +490,13 @@ go2rtc:
 
 ```yaml
 type: custom:webrtc-camera
-url: babycam_low  # Use low res for mobile
+url: babycam_low # Use low res for mobile
 ```
 
 ### 3. Frigate Integration
 
 Install the Frigate integration in Home Assistant:
+
 - Settings → Devices & Services → Add Integration → Frigate
 - URL: `http://192.168.1.118:8971`
 
@@ -497,17 +532,19 @@ roles/deploy_frigate_container/
 ## Performance Tips
 
 1. **Use camera's substream** for detection instead of transcoding:
+
    ```yaml
    inputs:
      - path: rtsp://.../live0
        roles: [record]
-     - path: rtsp://.../live1  # Lower resolution
+     - path: rtsp://.../live1 # Lower resolution
        roles: [detect]
    ```
 
 2. **Adjust detection resolution** based on camera distance and object size
 
 3. **Monitor GPU usage**:
+
    ```bash
    # If available (may require intel-gpu-tools)
    intel_gpu_top

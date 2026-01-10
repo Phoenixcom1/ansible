@@ -1,0 +1,29 @@
+---
+# Handlers for Immich container deployment
+
+- name: Reload systemd and restart immich
+  systemd:
+    daemon_reload: true
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ immich_uid }}"
+  listen: "Reload systemd and restart immich"
+
+- name: Restart Immich stack
+  systemd:
+    name: "{{ immich_systemd_target }}"
+    state: restarted
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ immich_uid }}"
+  listen: "Reload systemd and restart immich"
+
+- name: Reload nginx
+  systemd:
+    name: nginx
+    state: reloaded
+  become: true

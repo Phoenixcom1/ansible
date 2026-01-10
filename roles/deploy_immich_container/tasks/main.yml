@@ -1,0 +1,251 @@
+---
+# Immich service deployment using Podman Quadlets
+
+# Discover podman user's UID and GID
+- name: Get podman user info
+  getent:
+    database: passwd
+    key: "{{ podman_user }}"
+  register: podman_user_info
+  changed_when: false
+
+- name: Extract podman user UID and GID
+  set_fact:
+    immich_uid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][1] }}"
+    immich_gid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][2] }}"
+  when: podman_user in podman_user_info.ansible_facts.getent_passwd
+
+- name: Display discovered podman user UID and GID
+  debug:
+    msg: "Podman user '{{ podman_user }}' has UID={{ immich_uid }} GID={{ immich_gid }}"
+
+# Calculate host UID for network mount (if enabled)
+- name: Get subordinate UID range for podman user
+  shell: "awk -F: '/^{{ podman_user }}:/ {print $2}' /etc/subuid"
+  register: subuid_start
+  changed_when: false
+  check_mode: false
+  when: immich_enable_network_mount
+
+- name: Calculate host UID that maps to container user (UID 1000)
+  set_fact:
+    immich_host_uid: "{{ (subuid_start.stdout | default('0') | int) + 999 }}"
+    immich_host_gid: "{{ (subuid_start.stdout | default('0') | int) + 999 }}"
+  when: immich_enable_network_mount and subuid_start.stdout | length > 0
+
+# Network mount setup (optional)
+- name: Install CIFS utilities if using SMB mount
+  apt:
+    name: cifs-utils
+    state: present
+    update_cache: yes
+  become: true
+  when: immich_enable_network_mount and immich_network_mount_type == "cifs"
+
+- name: Create library mount directory
+  file:
+    path: "{{ immich_network_mount_target }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  when: immich_enable_network_mount
+
+- name: Mount network library directory (and persist to fstab)
+  mount:
+    path: "{{ immich_network_mount_target }}"
+    src: "{{ immich_network_mount_source }}"
+    fstype: "{{ immich_network_mount_type }}"
+    opts: "{{ immich_network_mount_options }}"
+    state: mounted
+    dump: 0
+    passno: 0
+  become: true
+  when: immich_enable_network_mount
+
+# Create necessary directories
+- name: Create Immich base directory
+  file:
+    path: "{{ immich_repo_path }}"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+
+- name: Create Immich data directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+  loop:
+    - "{{ immich_upload_dir }}"
+    - "{{ immich_db_dir }}"
+    - "{{ immich_model_cache_dir }}"
+    - "{{ immich_redis_dir }}"
+
+# Verify env file exists
+- name: Check if Immich env file exists
+  stat:
+    path: "{{ immich_env_file }}"
+  register: immich_env_stat
+
+- name: Warn if env file doesn't exist
+  debug:
+    msg: "WARNING: {{ immich_env_file }} does not exist. Please create it with required secrets (DB_DATABASE_NAME, DB_USERNAME, DB_PASSWORD, etc.)"
+  when: not immich_env_stat.stat.exists
+
+# Deploy Quadlet files
+- name: Create quadlet directory if not exists
+  file:
+    path: "/home/{{ podman_user }}/.config/containers/systemd"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+
+- name: Create systemd user directory if not exists
+  file:
+    path: "/home/{{ podman_user }}/.config/systemd/user"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+
+- name: Deploy Immich Network Quadlet
+  template:
+    src: immich.network.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/{{ immich_network }}.network"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: network_quadlet_deployed
+
+- name: Deploy Immich PostgreSQL Quadlet
+  template:
+    src: immich-postgres.container.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/immich-postgres.container"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: postgres_quadlet_deployed
+
+- name: Deploy Immich Redis Quadlet
+  template:
+    src: immich-redis.container.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/immich-redis.container"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: redis_quadlet_deployed
+
+- name: Deploy Immich Server Quadlet
+  template:
+    src: immich-server.container.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/immich-server.container"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: server_quadlet_deployed
+
+- name: Deploy Immich Microservices Quadlet
+  template:
+    src: immich-microservices.container.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/immich-microservices.container"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: microservices_quadlet_deployed
+
+- name: Deploy Immich Machine Learning Quadlet
+  template:
+    src: immich-machine-learning.container.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/immich-machine-learning.container"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: ml_quadlet_deployed
+
+- name: Deploy Immich systemd target
+  template:
+    src: immich-stack.target.j2
+    dest: "/home/{{ podman_user }}/.config/systemd/user/{{ immich_systemd_target }}"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: stack_target_deployed
+
+# Nginx reverse proxy configuration
+- name: Deploy nginx configuration for Immich
+  template:
+    src: immich.conf.j2
+    dest: "/etc/nginx/sites-available/immich.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: Reload nginx
+
+- name: Enable nginx site for Immich
+  file:
+    src: "/etc/nginx/sites-available/immich.conf"
+    dest: "/etc/nginx/sites-enabled/immich.conf"
+    state: link
+  become: true
+  notify: Reload nginx
+
+# Enable lingering and manage services
+- name: Enable lingering for podman user
+  command: loginctl enable-linger {{ podman_user }}
+  become: true
+  changed_when: false
+
+- name: Reload systemd user daemon (Quadlet generation)
+  systemd:
+    daemon_reload: true
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ immich_uid }}"
+
+# Manage services via stack target
+- name: Check if any Quadlet changed
+  set_fact:
+    any_quadlet_changed: "{{ network_quadlet_deployed.changed or postgres_quadlet_deployed.changed or redis_quadlet_deployed.changed or server_quadlet_deployed.changed or microservices_quadlet_deployed.changed or ml_quadlet_deployed.changed or stack_target_deployed.changed }}"
+
+- name: Restart Immich stack if any Quadlet changed
+  systemd:
+    name: "{{ immich_systemd_target }}"
+    state: restarted
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ immich_uid }}"
+  when: any_quadlet_changed
+
+- name: Ensure Immich stack is enabled and started
+  systemd:
+    name: "{{ immich_systemd_target }}"
+    enabled: yes
+    state: started
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ immich_uid }}"
+  when: not any_quadlet_changed

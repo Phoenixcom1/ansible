@@ -1,0 +1,82 @@
+---
+# Immich service deployment configuration
+
+# Podman user
+podman_user: "{{ podman_username }}"
+
+# Repository path (for data and config)
+immich_repo_path: "{{ podman_service_dir }}/immich"
+
+# External env file (should exist on target machine with secrets)
+immich_env_file: "{{ immich_repo_path }}/immich.env"
+
+# Volume and config paths
+immich_upload_dir: "{{ immich_repo_path }}/upload"
+immich_db_dir: "{{ immich_repo_path }}/postgres"
+immich_model_cache_dir: "{{ immich_repo_path }}/model-cache"
+immich_redis_dir: "{{ immich_repo_path }}/redis"
+
+# Network mount configuration for photos library (optional)
+immich_enable_network_mount: false
+immich_network_mount_source: "//datenbunker.local/Photos"
+immich_network_mount_type: "cifs"
+immich_network_mount_target: "{{ immich_repo_path }}/library"
+# SMB mount options - uid/gid will be set dynamically based on container user
+immich_network_mount_options: "vers=3.1.1,_netdev,credentials=/root/.immich_smbcreds,uid={{ immich_host_uid }},gid={{ immich_host_gid }},file_mode=0664,dir_mode=0775,rw"
+immich_smbcredentials_file: "/root/.immich_smbcreds"
+
+# Network configuration
+immich_network: immich_net
+immich_network_driver: bridge
+
+# Immich application settings
+immich_domain: "immich.kerberos.fassbender.contact"
+immich_port: 2283
+immich_internal_port: 2283
+
+# Container version tags
+immich_version: "release" # Use "release" for latest stable
+postgres_version: "16-alpine3.20" # PostgreSQL with pgvector support
+redis_version: "6.2-alpine"
+
+# Database configuration
+# DB_DATABASE_NAME, DB_USERNAME, and DB_PASSWORD should be set in immich.env file
+# These are also used for application DB connection settings
+immich_db_name: "immich"
+immich_db_user: "postgres"
+
+# PostgreSQL settings
+postgres_shared_buffers: "256MB"
+postgres_effective_cache_size: "1GB"
+postgres_maintenance_work_mem: "256MB"
+postgres_checkpoint_completion_target: "0.9"
+postgres_wal_buffers: "8MB"
+postgres_default_statistics_target: "100"
+postgres_random_page_cost: "1.1"
+postgres_effective_io_concurrency: "200"
+postgres_work_mem: "8MB"
+postgres_min_wal_size: "1GB"
+postgres_max_wal_size: "4GB"
+
+# Redis settings - use default Redis configuration
+
+# Machine Learning settings
+immich_ml_workers: 1 # Number of worker threads for ML
+immich_ml_model_ttl: 300 # Time to keep models loaded (seconds)
+
+# Upload settings
+immich_max_upload_size: "10000" # MB
+
+# Immich feature flags
+immich_disable_machine_learning: false
+immich_disable_reverse_geocoding: false
+
+# Container names (for internal network communication)
+immich_postgres_container: "immich-postgres"
+immich_redis_container: "immich-redis"
+immich_server_container: "immich-server"
+immich_microservices_container: "immich-microservices"
+immich_ml_container: "immich-machine-learning"
+
+# systemd target for coordinating all Immich services
+immich_systemd_target: "immich-stack.target"

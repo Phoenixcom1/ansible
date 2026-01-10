@@ -1,0 +1,16 @@
+# Immich Stack systemd Target
+#
+# This file is managed by Ansible - DO NOT EDIT MANUALLY
+# Role: deploy_immich_container
+#
+# This target coordinates all Immich services
+
+[Unit]
+Description=Immich Photo Management Stack
+Documentation=https://immich.app/docs
+Requires={{ immich_network }}-network.service
+Wants={{ immich_network }}-network.service immich-postgres.service immich-redis.service immich-server.service immich-microservices.service immich-machine-learning.service
+After={{ immich_network }}-network.service immich-postgres.service immich-redis.service immich-server.service immich-microservices.service immich-machine-learning.service
+
+[Install]
+WantedBy=default.target

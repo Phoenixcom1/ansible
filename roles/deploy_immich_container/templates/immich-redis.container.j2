@@ -1,0 +1,35 @@
+# Immich Redis Cache Container
+#
+# This file is managed by Ansible - DO NOT EDIT MANUALLY
+# Role: deploy_immich_container
+
+[Unit]
+Description=Immich Redis Cache
+Documentation=https://immich.app/docs
+PartOf={{ immich_systemd_target }}
+After={{ immich_network }}-network.service
+Wants={{ immich_network }}-network.service
+
+[Container]
+Image=docker.io/valkey/valkey:9@sha256:fb8d272e529ea567b9bf1302245796f21a2672b8368ca3fcb938ac334e613c8f
+ContainerName={{ immich_redis_container }}
+AutoUpdate=registry
+
+# Volume for Redis data
+Volume={{ immich_redis_dir }}:/data:Z
+
+# Network
+Network={{ immich_network }}.network
+
+# Health check
+HealthCmd=redis-cli ping
+HealthInterval=30s
+HealthTimeout=3s
+HealthRetries=5
+
+[Service]
+Restart=always
+TimeoutStartSec=900
+
+[Install]
+WantedBy={{ immich_systemd_target }}

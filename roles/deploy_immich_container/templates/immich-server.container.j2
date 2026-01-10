@@ -1,0 +1,66 @@
+# Immich Server Container
+#
+# This file is managed by Ansible - DO NOT EDIT MANUALLY
+# Role: deploy_immich_container
+
+[Unit]
+Description=Immich Server
+Documentation=https://immich.app/docs
+PartOf={{ immich_systemd_target }}
+After={{ immich_network }}-network.service immich-postgres.service immich-redis.service
+Wants={{ immich_network }}-network.service immich-postgres.service immich-redis.service
+
+[Container]
+Image=ghcr.io/immich-app/immich-server:{{ immich_version }}
+ContainerName={{ immich_server_container }}
+AutoUpdate=registry
+
+# Environment from file (DB_PASSWORD, etc.)
+EnvironmentFile={{ immich_env_file }}
+
+# Database connection
+Environment=DB_HOSTNAME={{ immich_postgres_container }}
+Environment=DB_PORT=5432
+Environment=DB_USERNAME={{ immich_db_user }}
+Environment=DB_DATABASE_NAME={{ immich_db_name }}
+
+# Redis connection
+Environment=REDIS_HOSTNAME={{ immich_redis_container }}
+Environment=REDIS_PORT=6379
+
+# Immich configuration
+Environment=IMMICH_WEB_URL=http://{{ immich_server_container }}:{{ immich_internal_port }}
+Environment=IMMICH_SERVER_URL=http://{{ immich_server_container }}:{{ immich_internal_port }}
+
+# Feature flags
+Environment=IMMICH_MACHINE_LEARNING_URL=http://{{ immich_ml_container }}:3003
+{% if immich_disable_machine_learning %}
+Environment=DISABLE_MACHINE_LEARNING=true
+{% endif %}
+{% if immich_disable_reverse_geocoding %}
+Environment=DISABLE_REVERSE_GEOCODING=true
+{% endif %}
+
+# Upload settings
+Environment=UPLOAD_LOCATION={{ immich_upload_dir }}
+
+# Volumes
+Volume={{ immich_upload_dir }}:/usr/src/app/upload:Z
+Volume=/etc/localtime:/etc/localtime:ro
+{% if immich_enable_network_mount %}
+Volume={{ immich_network_mount_target }}:/usr/src/app/external:ro
+{% endif %}
+
+# Network and ports
+Network={{ immich_network }}.network
+PublishPort=127.0.0.1:{{ immich_port }}:{{ immich_internal_port }}
+
+# Command
+Exec=start.sh immich
+
+[Service]
+Restart=always
+TimeoutStartSec=900
+
+[Install]
+WantedBy={{ immich_systemd_target }}

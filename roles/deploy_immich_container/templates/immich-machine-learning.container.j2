@@ -1,0 +1,36 @@
+# Immich Machine Learning Container
+#
+# This file is managed by Ansible - DO NOT EDIT MANUALLY
+# Role: deploy_immich_container
+
+[Unit]
+Description=Immich Machine Learning
+Documentation=https://immich.app/docs
+PartOf={{ immich_systemd_target }}
+After={{ immich_network }}-network.service immich-postgres.service immich-redis.service
+Wants={{ immich_network }}-network.service immich-postgres.service immich-redis.service
+
+[Container]
+Image=ghcr.io/immich-app/immich-machine-learning:{{ immich_version }}
+ContainerName={{ immich_ml_container }}
+AutoUpdate=registry
+
+# Environment from file
+EnvironmentFile={{ immich_env_file }}
+
+# ML Configuration
+Environment=MACHINE_LEARNING_WORKERS={{ immich_ml_workers }}
+Environment=MACHINE_LEARNING_MODEL_TTL={{ immich_ml_model_ttl }}
+
+# Volume for model cache
+Volume={{ immich_model_cache_dir }}:/cache:Z
+
+# Network
+Network={{ immich_network }}.network
+
+[Service]
+Restart=always
+TimeoutStartSec=900
+
+[Install]
+WantedBy={{ immich_systemd_target }}

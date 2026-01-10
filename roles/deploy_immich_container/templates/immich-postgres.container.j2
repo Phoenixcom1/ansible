@@ -1,0 +1,60 @@
+# Immich PostgreSQL Database Container
+#
+# This file is managed by Ansible - DO NOT EDIT MANUALLY
+# Role: deploy_immich_container
+
+[Unit]
+Description=Immich PostgreSQL Database
+Documentation=https://immich.app/docs
+PartOf={{ immich_systemd_target }}
+After={{ immich_network }}-network.service
+Wants={{ immich_network }}-network.service
+
+[Container]
+Image=ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
+ContainerName={{ immich_postgres_container }}
+AutoUpdate=registry
+
+# Environment from file
+EnvironmentFile={{ immich_env_file }}
+
+# Database configuration
+Environment=POSTGRES_PASSWORD=${DB_PASSWORD}
+Environment=POSTGRES_USER=${DB_USERNAME}
+Environment=POSTGRES_DB=${DB_DATABASE_NAME}
+Environment=POSTGRES_INITDB_ARGS='--data-checksums'
+
+# PostgreSQL tuning
+Environment=POSTGRES_SHARED_BUFFERS={{ postgres_shared_buffers }}
+Environment=POSTGRES_EFFECTIVE_CACHE_SIZE={{ postgres_effective_cache_size }}
+Environment=POSTGRES_MAINTENANCE_WORK_MEM={{ postgres_maintenance_work_mem }}
+Environment=POSTGRES_CHECKPOINT_COMPLETION_TARGET={{ postgres_checkpoint_completion_target }}
+Environment=POSTGRES_WAL_BUFFERS={{ postgres_wal_buffers }}
+Environment=POSTGRES_DEFAULT_STATISTICS_TARGET={{ postgres_default_statistics_target }}
+Environment=POSTGRES_RANDOM_PAGE_COST={{ postgres_random_page_cost }}
+Environment=POSTGRES_EFFECTIVE_IO_CONCURRENCY={{ postgres_effective_io_concurrency }}
+Environment=POSTGRES_WORK_MEM={{ postgres_work_mem }}
+Environment=POSTGRES_MIN_WAL_SIZE={{ postgres_min_wal_size }}
+Environment=POSTGRES_MAX_WAL_SIZE={{ postgres_max_wal_size }}
+
+# Volume for database data
+Volume={{ immich_db_dir }}:/var/lib/postgresql/data:Z
+
+# Shared memory size for PostgreSQL
+ShmSize=128m
+
+# Network
+Network={{ immich_network }}.network
+
+# Health check
+HealthCmd=pg_isready -U {{ immich_db_user }} -d {{ immich_db_name }}
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=5
+
+[Service]
+Restart=always
+TimeoutStartSec=900
+
+[Install]
+WantedBy={{ immich_systemd_target }}
