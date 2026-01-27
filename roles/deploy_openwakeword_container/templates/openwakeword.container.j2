@@ -1,0 +1,31 @@
+# openwakeword.container
+# Managed by Ansible - Podman Quadlet for Wyoming-openWakeWord wake word detection service
+# https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html
+
+[Unit]
+Description=Wyoming-openWakeWord Wake Word Detection Service
+Documentation=https://github.com/rhasspy/wyoming-openwakeword
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=docker.io/rhasspy/wyoming-openwakeword:latest
+AutoUpdate=registry
+ContainerName=openwakeword
+
+# Network
+Network={{ podman_network }}
+PublishPort={{ openwakeword_port }}:{{ openwakeword_port }}/tcp
+
+# Volumes
+Volume={{ openwakeword_custom_models_dir }}:/custom:Z
+
+# Command arguments
+Exec=--custom-model-dir /custom
+
+[Service]
+Restart=always
+TimeoutStopSec=70
+
+[Install]
+WantedBy=default.target

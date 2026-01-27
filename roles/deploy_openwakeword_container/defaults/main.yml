@@ -1,0 +1,20 @@
+---
+# Wyoming-openWakeWord service deployment configuration
+
+# openWakeWord application settings
+openwakeword_port: 10400
+
+# Data directory for custom wake word models
+openwakeword_custom_models_dir: "{{ podman_service_dir }}/openwakeword/custom"
+
+# Pre-loaded wake words (no configuration needed, models are built into the container)
+# Available: "alexa", "hey_jarvis", "hey_mycroft", "hey_rhasspy", "ok_nabu"
+# The service loads all available models by default
+
+# Threshold for wake word detection (0.0 to 1.0, default is usually 0.5)
+# Lower = more sensitive (more false positives), Higher = less sensitive (may miss wake words)
+# openwakeword_threshold: "0.5"  # Uncomment and adjust if needed
+
+# Podman user and network
+podman_user: "{{ podman_username }}"
+podman_network: "podman_bridge"
