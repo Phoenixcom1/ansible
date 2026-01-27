@@ -1,0 +1,31 @@
+# piper.container
+# Managed by Ansible - Podman Quadlet for Wyoming-Piper text-to-speech service
+# https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html
+
+[Unit]
+Description=Wyoming-Piper Text-to-Speech Service
+Documentation=https://github.com/rhasspy/wyoming-piper
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=docker.io/rhasspy/wyoming-piper:latest
+AutoUpdate=registry
+ContainerName=piper
+
+# Network
+Network={{ podman_network }}
+PublishPort={{ piper_port }}:{{ piper_port }}/tcp
+
+# Volumes
+Volume={{ piper_data_dir }}:/data:Z
+
+# Command arguments
+Exec=--voice {{ piper_voice }}
+
+[Service]
+Restart=always
+TimeoutStopSec=70
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,17 @@
+---
+# Wyoming-Piper service deployment configuration
+
+# Piper application settings
+piper_port: 10200
+
+# Data directory for Piper voices and cache
+piper_data_dir: "{{ podman_service_dir }}/piper/data"
+
+# Piper voice configuration
+# Format: language_COUNTRY-speaker-quality
+# Examples: en_US-lessac-medium, en_GB-northern_english_male-medium, de_DE-thorsten-medium
+piper_voice: "en_US-lessac-medium"
+
+# Podman user and network
+podman_user: "{{ podman_username }}"
+podman_network: "podman_bridge"

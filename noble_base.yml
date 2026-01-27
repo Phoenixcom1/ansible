@@ -27,4 +27,5 @@
     #- deploy_frigate_container
     #- deploy_immich_container
     #- restic-backup
-    - deploy_whisper_container
+    #- deploy_whisper_container
+    - deploy_piper_container
