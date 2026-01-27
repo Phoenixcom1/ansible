@@ -1,0 +1,20 @@
+---
+# Wyoming-Whisper service deployment configuration
+
+# Whisper application settings
+whisper_domain: "whisper.kerberos.fassbender.contact"
+whisper_port: 10300
+
+# Data directory for Whisper models and cache
+whisper_data_dir: "{{ podman_service_dir }}/whisper/data"
+
+# Whisper model configuration
+# Available models: tiny, tiny-int8, base, base-int8, small, small-int8, medium, medium-int8, large, large-v3
+whisper_model: "tiny-int8"
+
+# Language code (e.g., en, de, fr, es, etc.)
+whisper_language: "en"
+
+# Podman user and network
+podman_user: "{{ podman_username }}"
+podman_network: "podman_bridge"

@@ -1,0 +1,31 @@
+# whisper.container
+# Managed by Ansible - Podman Quadlet for Wyoming-Whisper speech-to-text service
+# https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html
+
+[Unit]
+Description=Wyoming-Whisper Speech-to-Text Service
+Documentation=https://github.com/rhasspy/wyoming-faster-whisper
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=docker.io/rhasspy/wyoming-whisper:latest
+AutoUpdate=registry
+ContainerName=whisper
+
+# Network
+Network={{ podman_network }}
+PublishPort={{ whisper_port }}:{{ whisper_port }}/tcp
+
+# Volumes
+Volume={{ whisper_data_dir }}:/data:Z
+
+# Command arguments
+Exec=--model {{ whisper_model }} --language {{ whisper_language }}
+
+[Service]
+Restart=always
+TimeoutStopSec=70
+
+[Install]
+WantedBy=default.target

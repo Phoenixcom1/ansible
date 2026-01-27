@@ -25,5 +25,6 @@
     #- deploy_unifi_controller_container
     #- deploy_paperless_container
     #- deploy_frigate_container
-    - deploy_immich_container
+    #- deploy_immich_container
     #- restic-backup
+    - deploy_whisper_container
