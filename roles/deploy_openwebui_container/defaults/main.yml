@@ -1,0 +1,17 @@
+---
+# Open WebUI service deployment configuration
+
+# Open WebUI application settings
+openwebui_domain: "chat.kerberos.fassbender.contact"
+openwebui_host_port: 3001
+openwebui_container_port: 8080
+
+# Named volume for persistent data
+openwebui_volume_name: "open-webui"
+
+# Enable access to host services (like Ollama running on the host)
+openwebui_enable_host_access: true
+
+# Podman user and network
+podman_user: "{{ podman_username }}"
+podman_network: "podman_bridge"

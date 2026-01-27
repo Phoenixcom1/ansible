@@ -29,4 +29,5 @@
     #- restic-backup
     #- deploy_whisper_container
     #- deploy_piper_container
-    - deploy_openwakeword_container
+    #- deploy_openwakeword_container
+    - deploy_openwebui_container

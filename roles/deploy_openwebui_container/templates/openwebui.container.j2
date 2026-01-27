@@ -1,0 +1,31 @@
+# openwebui.container
+# Managed by Ansible - Podman Quadlet for Open WebUI
+# https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html
+
+[Unit]
+Description=Open WebUI Container
+Documentation=https://github.com/open-webui/open-webui
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=ghcr.io/open-webui/open-webui:main
+AutoUpdate=registry
+ContainerName=openwebui
+
+# Network
+Network={{ podman_network }}
+PublishPort=127.0.0.1:{{ openwebui_host_port }}:{{ openwebui_container_port }}/tcp
+
+# Volume (named volume for persistent data)
+Volume={{ openwebui_volume_name }}:/app/backend/data
+
+# Note: To access services on the host (like Ollama), use the podman network gateway IP
+# You can find it with: podman network inspect {{ podman_network }} | grep gateway
+
+[Service]
+Restart=always
+TimeoutStopSec=70
+
+[Install]
+WantedBy=default.target
