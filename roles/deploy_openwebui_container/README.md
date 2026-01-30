@@ -37,7 +37,7 @@ This role uses **Podman Quadlets** - the modern, recommended way to manage conta
 ```yaml
 # Open WebUI application settings
 openwebui_domain: "chat.kerberos.fassbender.contact"
-openwebui_host_port: 3000
+openwebui_host_port: 3001
 openwebui_container_port: 8080
 
 # Named volume for persistent data
@@ -53,7 +53,7 @@ podman_network: "podman_bridge"
 
 ### Key Configuration Options
 
-- **openwebui_host_port**: Port on the host to access Open WebUI (default: 3000)
+- **openwebui_host_port**: Port on the host to access Open WebUI (default: 3000 but changed to 3001)
 - **openwebui_enable_host_access**: Allows container to reach services on the host via `host.containers.internal` (needed for Ollama)
 - **openwebui_volume_name**: Named volume for persistent storage of chats, settings, and models
 
@@ -121,7 +121,7 @@ podman auto-update
 Access via browser:
 
 ```
-http://<server-ip>:3000
+http://<server-ip>:3001
 ```
 
 ### Via Nginx (HTTPS)
@@ -203,8 +203,8 @@ podman volume inspect open-webui
 ### Web UI Not Loading
 
 1. Check service is running: `systemctl --user status open-webui`
-2. Verify port is accessible: `curl http://localhost:3000`
-3. Check firewall: `sudo ufw status | grep 3000`
+2. Verify port is accessible: `curl http://localhost:3001`
+3. Check firewall: `sudo ufw status | grep 3001`
 
 ## Data Management
 
@@ -256,17 +256,17 @@ Podman Volume: {{ openwebui_volume_name }}   # Named volume for data
 
 The service listens on:
 
-- **Port 3000** - HTTP web interface
+- **Port 3001** - HTTP web interface
 - **Default**: Binds to `127.0.0.1` (localhost only)
-- **For external access**: Change `PublishPort` to `3000:8080/tcp` or use nginx reverse proxy
+- **For external access**: Change `PublishPort` to `3001:8080/tcp` or use nginx reverse proxy
 
 ### Firewall Configuration
 
 If accessing directly (not via nginx):
 
 ```bash
-# Allow port 3000
-sudo ufw allow 3000/tcp
+# Allow port 3001
+sudo ufw allow 3001/tcp
 ```
 
 ## Security Considerations

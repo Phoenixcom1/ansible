@@ -1,0 +1,44 @@
+---
+# AdGuard Home service deployment configuration
+
+# Compose file settings
+adguardhome_project_name: adguardhome
+adguardhome_compose_file: compose_adguardhome.yml
+adguardhome_compose_template: compose_adguardhome.yml.j2
+adguardhome_repo_path: "{{ podman_service_dir }}/{{ adguardhome_project_name }}"
+
+# Volume and config paths
+adguardhome_work_dir: "{{ podman_service_dir }}/{{ adguardhome_project_name }}/work"
+adguardhome_conf_dir: "{{ podman_service_dir }}/{{ adguardhome_project_name }}/conf"
+
+# AdGuard Home application settings
+adguardhome_domain: "adguard.kerberos.fassbender.contact"
+adguardhome_admin_port: 3180 # Admin interface (reverse proxied)
+adguardhome_initial_setup_port: 3010 # Only for initial setup (temporary, after first setup can be removed)
+
+# DNS Ports
+adguardhome_dns_port_tcp: 53
+adguardhome_dns_port_udp: 53
+
+# DHCP Ports (optional, enable if needed)
+adguardhome_dhcp_enabled: false
+adguardhome_dhcp_server_port: 67
+adguardhome_dhcp_client_port: 68
+
+# DNS over TLS/QUIC Ports
+adguardhome_dot_port: 853 # DNS over TLS
+adguardhome_doq_port_853: 853 # DNS over QUIC
+adguardhome_doq_port_784: 784 # DNS over QUIC
+adguardhome_doq_port_8853: 8853 # DNS over QUIC
+
+# DNSCrypt Ports
+adguardhome_dnscrypt_port: 5443
+
+# Environment variables
+adguardhome_timezone: "Europe/Paris"
+
+# Reverse proxy settings
+adguardhome_published_server_url: "https://{{ adguardhome_domain }}"
+
+# Podman user
+podman_user: "{{ podman_username }}"

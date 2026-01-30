@@ -1,0 +1,68 @@
+# adguardhome.container
+# Managed by Ansible - Podman Quadlet for AdGuard Home DNS Server
+# https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html
+#
+# AUTO-UPDATE DISABLED: Manual updates only for safety
+# Use update-container.yml playbook to safely update this container
+
+[Unit]
+Description=AdGuard Home DNS Server
+Documentation=https://github.com/AdguardTeam/AdGuardHome
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=docker.io/adguard/adguardhome:latest
+# AutoUpdate intentionally disabled for manual control
+ContainerName=adguardhome
+HostName=adguard
+
+# Admin interface port (reverse proxied)
+PublishPort=127.0.0.1:{{ adguardhome_admin_port }}:80/tcp
+
+# Initial setup port (only used during first-time setup)
+PublishPort={{ adguardhome_initial_setup_port }}:3000/tcp
+
+# DNS ports (required for DNS functionality)
+PublishPort={{ adguardhome_dns_port_tcp }}:53/tcp
+PublishPort={{ adguardhome_dns_port_udp }}:53/udp
+
+{% if adguardhome_dhcp_enabled | default(false) %}
+# DHCP ports (optional)
+PublishPort={{ adguardhome_dhcp_server_port }}:67/udp
+PublishPort={{ adguardhome_dhcp_client_port }}:68/udp
+{% endif %}
+
+# DNS over TLS
+PublishPort={{ adguardhome_dot_port }}:853/tcp
+
+# DNS over QUIC
+PublishPort={{ adguardhome_doq_port_853 }}:853/udp
+PublishPort={{ adguardhome_doq_port_784 }}:784/udp
+PublishPort={{ adguardhome_doq_port_8853 }}:8853/udp
+
+# DNSCrypt
+PublishPort={{ adguardhome_dnscrypt_port }}:5443/tcp
+PublishPort={{ adguardhome_dnscrypt_port }}:5443/udp
+
+# Volumes
+Volume={{ adguardhome_work_dir }}:/opt/adguardhome/work:Z
+Volume={{ adguardhome_conf_dir }}:/opt/adguardhome/conf:Z
+Volume=/etc/localtime:/etc/localtime:ro
+
+# Environment - Timezone
+Environment=TZ={{ adguardhome_timezone }}
+
+# Health check
+HealthCmd=wget --no-verbose --tries=1 --spider http://localhost:80/ || exit 1
+HealthInterval=30s
+HealthTimeout=3s
+HealthRetries=3
+HealthStartPeriod=30s
+
+[Service]
+Restart=unless-stopped
+TimeoutStopSec=70
+
+[Install]
+WantedBy=default.target
