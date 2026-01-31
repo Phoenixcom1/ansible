@@ -91,6 +91,24 @@ restic_backup_services:
       - "*/cache/*" # Thumbnail cache - regenerated
       - "*.log"
 
+  immich:
+    enabled: true
+    # Strategy: Stop containers before backup (PostgreSQL database + uploaded photos)
+    stop_before_backup: true
+    compose_file: "{{ podman_service_dir }}/immich/compose_immich.yml"
+    project_name: immich
+    paths:
+      - "{{ podman_service_dir }}/immich/upload" # User-uploaded photos and videos
+      - "{{ podman_service_dir }}/immich/postgres" # PostgreSQL database with metadata
+      - "{{ podman_service_dir }}/immich/immich.env" # Configuration with secrets
+    excludes:
+      - "*/model-cache/*" # ML models - can be re-downloaded
+      - "*/redis/*" # Redis cache - can be regenerated
+      - "*/library/*" # External network mount - backed up elsewhere
+      - "*/thumbs/*" # Thumbnails - can be regenerated
+      - "*/encoded-video/*" # Transcoded videos - can be regenerated
+      - "*.log"
+
 # Global excludes (applied to all backups)
 restic_global_excludes:
   - "*/cache/*"

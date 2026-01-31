@@ -55,7 +55,20 @@ Disables systemd-resolved's DNS stub listener to free port 53:
 - Updates `/etc/resolv.conf` to point to `/run/systemd/resolve/resolv.conf`
 - Host continues using upstream DNS from DHCP (not AdGuard Home)
 
+This is inspired by the [offical documentation](https://adguard-dns.io/kb/adguard-home/faq/#bindinuse).
+
 **Important**: The host system will continue to use DNS servers provided by DHCP, while AdGuard Home serves DNS to other network clients. This ensures the host DNS remains functional even if the AdGuard Home container is stopped.
+
+**Side Effect**: After this configuration, Podman's aardvark-dns (DNS forwarder for containers) needs to pick up the new DNS configuration from `/etc/resolv.conf`. To refresh it after first deployment:
+
+- **Option 1**: Reboot the system
+- **Option 2**: Recreate any Podman container:
+  `systemctl --user stop whisper`
+  `podman rm -f whisper`
+  `systemctl --user daemon-reload`
+  `systemctl --user start whisper`
+
+Without this refresh, existing containers may experience DNS resolution failures until aardvark-dns reloads (triggered when a container is recreated).
 
 ---
 
