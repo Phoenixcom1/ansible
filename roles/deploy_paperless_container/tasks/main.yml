@@ -134,15 +134,7 @@
   loop: "{{ paperless_dir_stats.results }}"
   when: not item.stat.exists
 
-# Create the isolated network for paperless
-- name: Create isolated paperless network
-  command: podman network create {{ paperless_network }}
-  become: true
-  become_user: "{{ podman_user }}"
-  register: paperless_network_result
-  changed_when: "'Created' in paperless_network_result.stdout or 'already exists' not in paperless_network_result.stderr"
-  failed_when: paperless_network_result.rc != 0 and 'already exists' not in paperless_network_result.stderr
-  ignore_errors: true
+# Network will be created by Quadlet .network file
 
 # Check for environment file
 - name: Check if paperless.env file exists
@@ -222,6 +214,16 @@
     mode: "0755"
   become: true
 
+- name: Deploy paperless network Quadlet file
+  template:
+    src: paperless.network.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/{{ paperless_network }}.network"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: network_quadlet_deployed
+
 - name: Deploy paperless-redis Quadlet container file
   template:
     src: paperless-redis.container.j2
@@ -289,7 +291,7 @@
 # Manage services via stack target (instead of individually)
 - name: Check if any Quadlet changed
   set_fact:
-    any_quadlet_changed: "{{ redis_quadlet_deployed.changed or gotenberg_quadlet_deployed.changed or tika_quadlet_deployed.changed or webserver_quadlet_deployed.changed or stack_target_deployed.changed }}"
+    any_quadlet_changed: "{{ network_quadlet_deployed.changed or redis_quadlet_deployed.changed or gotenberg_quadlet_deployed.changed or tika_quadlet_deployed.changed or webserver_quadlet_deployed.changed or stack_target_deployed.changed }}"
 
 - name: Restart paperless stack if any Quadlet changed
   systemd:

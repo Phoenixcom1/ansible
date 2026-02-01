@@ -17,7 +17,7 @@ Image=docker.io/library/redis:7
 ContainerName=paperless-redis
 
 # Network (isolated)
-Network={{ paperless_network }}
+Network={{ paperless_network }}.network
 
 # Volumes
 Volume={{ paperless_redis_dir }}:/data:Z

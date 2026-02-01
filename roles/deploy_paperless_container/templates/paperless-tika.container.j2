@@ -17,7 +17,7 @@ Image=docker.io/apache/tika:latest
 ContainerName=paperless-tika
 
 # Network (isolated)
-Network={{ paperless_network }}
+Network={{ paperless_network }}.network
 
 [Service]
 Restart=unless-stopped

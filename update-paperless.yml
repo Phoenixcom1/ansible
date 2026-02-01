@@ -104,6 +104,23 @@
 
       when: backup_enabled | bool
 
+    # Helper task to stop all paperless services
+    - name: Stop all Paperless services individually
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+        scope: user
+      become: true
+      become_user: "{{ podman_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+      loop:
+        - paperless-webserver.service
+        - paperless-tika.service
+        - paperless-gotenberg.service
+        - paperless-redis.service
+      when: false # Only used when explicitly called
+
     # Update phase (all containers)
     - name: Update Paperless containers
       block:
@@ -146,15 +163,27 @@
 
         - name: Update containers with new images
           block:
-            - name: Stop Paperless stack for update
+            - name: Stop all Paperless services for update
               systemd:
-                name: paperless-stack.target
+                name: "{{ item }}"
                 state: stopped
                 scope: user
               become: true
               become_user: "{{ podman_user }}"
               environment:
                 XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+              loop:
+                - paperless-webserver.service
+                - paperless-tika.service
+                - paperless-gotenberg.service
+                - paperless-redis.service
+
+            - name: Force remove old containers
+              command: podman rm -f {{ item }}
+              become: true
+              become_user: "{{ podman_user }}"
+              loop: "{{ paperless_containers }}"
+              ignore_errors: true
 
             - name: Reload systemd to apply Quadlet changes
               systemd:

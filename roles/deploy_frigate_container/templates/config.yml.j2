@@ -5,9 +5,9 @@
 ffmpeg:
   hwaccel_args: preset-vaapi
   input_args: preset-rtsp-generic
-#  output_args:
-#    record: preset-record-generic-audio-copy
-#
+  output_args:
+    record: preset-record-generic-audio-copy
+
 ## Explicitly set VAAPI device
 #detectors:
 #  default:
@@ -22,7 +22,7 @@ go2rtc:
     BabyCam:
       - rtsp://{{ frigate_camera_user }}:{{ frigate_camera_password }}@{{ frigate_camera_ip }}/live0
     BabyCam_low:
-      - "ffmpeg:rtsp://{{ frigate_camera_user }}:{{ frigate_camera_password }}@{{ frigate_camera_ip }}/live0#video=h264#width=640#height=480#bitrate=500k"
+      - "ffmpeg:rtsp://{{ frigate_camera_user }}:{{ frigate_camera_password }}@{{ frigate_camera_ip }}/live0#video=h264#width=640#height=480#bitrate=500k#audio=copy"
 
 # Database
 database:

@@ -26,9 +26,9 @@ PublishPort=127.0.0.1:{{ adguardhome_admin_port }}:80/tcp
 # Initial setup port (only used during first-time setup)
 PublishPort={{ adguardhome_initial_setup_port }}:3000/tcp
 
-# DNS ports (required for DNS functionality)
-PublishPort={{ adguardhome_dns_port_tcp }}:53/tcp
-PublishPort={{ adguardhome_dns_port_udp }}:53/udp
+# DNS ports (bind to host IP only to avoid conflict with podman bridge DNS)
+PublishPort={{ ansible_default_ipv4.address }}:{{ adguardhome_dns_port_tcp }}:53/tcp
+PublishPort={{ ansible_default_ipv4.address }}:{{ adguardhome_dns_port_udp }}:53/udp
 
 {% if adguardhome_dhcp_enabled | default(false) %}
 # DHCP ports (optional)

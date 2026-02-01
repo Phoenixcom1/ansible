@@ -17,7 +17,7 @@ Image=docker.io/gotenberg/gotenberg:latest
 ContainerName=paperless-gotenberg
 
 # Network (isolated)
-Network={{ paperless_network }}
+Network={{ paperless_network }}.network
 
 # Command with gotenberg-specific flags
 Exec=gotenberg --chromium-disable-javascript={{ gotenberg_chromium_disable_javascript | lower }} --chromium-allow-list={{ gotenberg_chromium_allow_list }} --libreoffice-disable-routes={{ gotenberg_libreoffice_disable_routes | lower }} --libreoffice-auto-start={{ gotenberg_libreoffice_auto_start | lower }} --libreoffice-start-timeout={{ gotenberg_libreoffice_start_timeout }} --api-timeout={{ gotenberg_api_timeout }}

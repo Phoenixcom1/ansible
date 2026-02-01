@@ -8,8 +8,9 @@
 [Unit]
 Description=Paperless-ngx Webserver
 Documentation=https://docs.paperless-ngx.com/
-Wants=network-online.target paperless-redis.service paperless-gotenberg.service paperless-tika.service
-After=network-online.target paperless-redis.service paperless-gotenberg.service paperless-tika.service
+Wants=network-online.target
+Requires={{ paperless_network }}-network.service paperless-redis.service paperless-gotenberg.service paperless-tika.service
+After=network-online.target {{ paperless_network }}-network.service paperless-redis.service paperless-gotenberg.service paperless-tika.service
 {% if paperless_enable_network_mount %}
 RequiresMountsFor={{ paperless_consume_dir }}
 {% endif %}
@@ -20,7 +21,7 @@ Image=ghcr.io/paperless-ngx/paperless-ngx:latest
 ContainerName=paperless-webserver
 
 # Network (isolated)
-Network={{ paperless_network }}
+Network={{ paperless_network }}.network
 PublishPort=127.0.0.1:{{ paperless_port }}:{{ paperless_internal_port }}/tcp
 
 # Volumes

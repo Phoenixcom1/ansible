@@ -32,4 +32,4 @@
     #- deploy_openwakeword_container
     #- deploy_openwebui_container
     - deploy_adguardhome_container
-    - deploy_adguardhome_sync_container
+    #- deploy_adguardhome_sync_container
