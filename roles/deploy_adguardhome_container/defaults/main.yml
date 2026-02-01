@@ -40,5 +40,6 @@ adguardhome_timezone: "Europe/Paris"
 # Reverse proxy settings
 adguardhome_published_server_url: "https://{{ adguardhome_domain }}"
 
-# Podman user
+# Podman user and network
 podman_user: "{{ podman_username }}"
+adguardhome_network: "adguardhome_net"

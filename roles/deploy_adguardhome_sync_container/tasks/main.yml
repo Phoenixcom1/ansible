@@ -1,0 +1,142 @@
+---
+# AdGuardHome Sync service deployment using Podman Quadlets
+
+# Discover podman user's UID and GID
+- name: Get podman user info
+  getent:
+    database: passwd
+    key: "{{ podman_user }}"
+  register: podman_user_info
+  changed_when: false
+
+- name: Extract podman user UID and GID
+  set_fact:
+    podman_user_uid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][1] }}"
+    podman_user_gid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][2] }}"
+  when: podman_user in podman_user_info.ansible_facts.getent_passwd
+
+# Create config directory
+- name: Check if adguardhome-sync config directory exists
+  stat:
+    path: "{{ adguardhome_sync_config_dir }}"
+  register: sync_config_stat
+
+- name: Create adguardhome-sync config directory if missing
+  file:
+    path: "{{ adguardhome_sync_config_dir }}"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+  when: not sync_config_stat.stat.exists
+
+# Check if .env file exists
+- name: Check if adguardhome-sync .env file exists
+  stat:
+    path: "{{ adguardhome_sync_config_dir }}/.env"
+  register: sync_env_stat
+
+# Deploy environment file with credentials (only if it doesn't exist)
+- name: Deploy adguardhome-sync environment file
+  template:
+    src: adguardhome-sync.env.j2
+    dest: "{{ adguardhome_sync_config_dir }}/.env"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0600" # Restricted permissions for sensitive data
+  become: true
+  register: sync_env_deployed
+  when: not sync_env_stat.stat.exists
+
+# Deploy configuration file
+- name: Deploy adguardhome-sync configuration
+  template:
+    src: adguardhome-sync.yaml.j2
+    dest: "{{ adguardhome_sync_config_dir }}/adguardhome-sync.yaml"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: sync_config_deployed
+
+# Create Quadlet directory (Podman systemd units)
+- name: Create Quadlet directory for podman user
+  file:
+    path: "/home/{{ podman_user }}/.config/containers/systemd"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+
+# Deploy Quadlet file
+- name: Deploy adguardhome-sync Quadlet file
+  template:
+    src: adguardhome-sync.container.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/adguardhome-sync.container"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: quadlet_deployed
+
+# Enable lingering for podman user (allows user services to run without login)
+- name: Enable lingering for podman user
+  command: loginctl enable-linger {{ podman_user }}
+  become: true
+  changed_when: false
+
+# Reload systemd daemon to pick up Quadlet changes
+- name: Reload systemd user daemon (Quadlet generation)
+  systemd:
+    daemon_reload: yes
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+
+# Restart service if Quadlet, config, or env file changed
+- name: Restart adguardhome-sync service (config or Quadlet changed)
+  systemd:
+    name: adguardhome-sync
+    state: restarted
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  when: quadlet_deployed.changed or sync_config_deployed.changed or sync_env_deployed.changed
+
+- name: Ensure adguardhome-sync service is enabled and started
+  systemd:
+    name: adguardhome-sync
+    enabled: yes
+    state: started
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+
+# Deploy nginx reverse proxy configuration
+- name: Deploy nginx reverse proxy config for adguardhome-sync
+  template:
+    src: adguardhome-sync.conf.j2
+    dest: /etc/nginx/sites-available/adguardhome-sync.conf
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: reload nginx
+
+- name: Enable adguardhome-sync nginx site
+  file:
+    src: /etc/nginx/sites-available/adguardhome-sync.conf
+    dest: /etc/nginx/sites-enabled/adguardhome-sync.conf
+    state: link
+    owner: root
+    group: root
+  become: true
+  notify: reload nginx

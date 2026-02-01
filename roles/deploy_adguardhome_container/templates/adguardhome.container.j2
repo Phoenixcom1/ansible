@@ -17,6 +17,9 @@ Image=docker.io/adguard/adguardhome:latest
 ContainerName=adguardhome
 HostName=adguard
 
+# Network
+Network={{ adguardhome_network }}
+
 # Admin interface port (reverse proxied)
 PublishPort=127.0.0.1:{{ adguardhome_admin_port }}:80/tcp
 

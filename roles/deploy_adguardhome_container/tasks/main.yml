@@ -1,6 +1,39 @@
 ---
 # AdGuard Home service deployment using Podman Quadlets
 
+# Discover podman user's UID and GID
+- name: Get podman user info
+  getent:
+    database: passwd
+    key: "{{ podman_user }}"
+  register: podman_user_info
+  changed_when: false
+
+- name: Extract podman user UID and GID
+  set_fact:
+    podman_user_uid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][1] }}"
+    podman_user_gid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][2] }}"
+  when: podman_user in podman_user_info.ansible_facts.getent_passwd
+
+# Create dedicated network for AdGuard Home containers
+- name: Check if AdGuard Home network exists
+  command: podman network exists {{ adguardhome_network }}
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  register: network_check
+  changed_when: false
+  failed_when: false
+
+- name: Create AdGuard Home network
+  command: podman network create {{ adguardhome_network }}
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  when: network_check.rc != 0
+
 # Configure system to allow unprivileged port binding for DNS (port 53)
 - name: Configure unprivileged port start for DNS
   sysctl:
@@ -52,20 +85,6 @@
 # Flush handlers to ensure systemd-resolved is restarted before AdGuard Home starts
 - name: Apply systemd-resolved configuration changes
   meta: flush_handlers
-
-# Discover podman user's UID and GID
-- name: Get podman user info
-  getent:
-    database: passwd
-    key: "{{ podman_user }}"
-  register: podman_user_info
-  changed_when: false
-
-- name: Extract podman user UID and GID
-  set_fact:
-    podman_user_uid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][1] }}"
-    podman_user_gid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][2] }}"
-  when: podman_user in podman_user_info.ansible_facts.getent_passwd
 
 # Create work and config directories
 - name: Check if adguardhome work directory exists

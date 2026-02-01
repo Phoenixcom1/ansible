@@ -1,0 +1,18 @@
+---
+# Handlers for AdGuardHome Sync service
+
+- name: Restart adguardhome-sync service
+  systemd:
+    name: adguardhome-sync
+    state: restarted
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+
+- name: reload nginx
+  systemd:
+    name: nginx
+    state: reloaded
+  become: true

@@ -1,0 +1,44 @@
+# AdGuard Home Sync Configuration
+# Managed by Ansible
+
+# Cron expression for sync interval
+cron: "{{ adguardhome_sync_cron }}"
+
+# Run sync on startup
+runOnStart: {{ adguardhome_sync_run_on_start | lower }}
+
+# Continue on errors
+continueOnError: {{ adguardhome_sync_continue_on_error | lower }}
+
+# Origin and replica credentials are loaded from environment variables
+# See .env file for: ORIGIN_URL, ORIGIN_USERNAME, ORIGIN_PASSWORD
+# REPLICA1_URL, REPLICA1_USERNAME, REPLICA1_PASSWORD, etc.
+# This allows credentials to be excluded from backups
+
+# API configuration
+api:
+{% if adguardhome_sync_api_enabled %}
+  port: 8080
+  # API_USERNAME and API_PASSWORD are loaded from environment variables
+  darkMode: {{ adguardhome_sync_api_dark_mode | lower }}
+{% else %}
+  port: 0  # Disabled
+{% endif %}
+
+# Feature flags
+features:
+  dns:
+    accessLists: {{ adguardhome_sync_features.dns.accessLists | lower }}
+    serverConfig: {{ adguardhome_sync_features.dns.serverConfig | lower }}
+    rewrites: {{ adguardhome_sync_features.dns.rewrites | lower }}
+  dhcp:
+    serverConfig: {{ adguardhome_sync_features.dhcp.serverConfig | lower }}
+    staticLeases: {{ adguardhome_sync_features.dhcp.staticLeases | lower }}
+  generalSettings: {{ adguardhome_sync_features.generalSettings | lower }}
+  queryLogConfig: {{ adguardhome_sync_features.queryLogConfig | lower }}
+  statsConfig: {{ adguardhome_sync_features.statsConfig | lower }}
+  clientSettings: {{ adguardhome_sync_features.clientSettings | lower }}
+  services: {{ adguardhome_sync_features.services | lower }}
+  filters: {{ adguardhome_sync_features.filters | lower }}
+  theme: {{ adguardhome_sync_features.theme | lower }}
+  tlsConfig: {{ adguardhome_sync_features.tlsConfig | lower }}

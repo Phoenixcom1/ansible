@@ -1,0 +1,47 @@
+# adguardhome-sync.container
+# Managed by Ansible - Podman Quadlet for AdGuard Home Sync
+# https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html
+
+[Unit]
+Description=AdGuard Home Sync Service
+Documentation=https://github.com/bakito/adguardhome-sync
+Wants=network-online.target
+After=network-online.target adguardhome.service
+Requires=adguardhome.service
+
+[Container]
+Image=ghcr.io/bakito/adguardhome-sync:latest
+AutoUpdate=registry
+ContainerName=adguardhome-sync
+
+# Network
+Network={{ adguardhome_network }}
+{% if adguardhome_sync_api_enabled %}
+PublishPort=127.0.0.1:{{ adguardhome_sync_api_port }}:8080/tcp
+{% endif %}
+
+# User
+User={{ podman_user_uid }}:{{ podman_user_gid }}
+
+# Volumes
+Volume={{ adguardhome_sync_config_dir }}:/config:Z
+
+# Environment file
+EnvironmentFile={{ adguardhome_sync_config_dir }}/.env
+
+# Command
+Exec=run --config /config/adguardhome-sync.yaml
+
+# Health check
+HealthCmd=wget --spider -q http://localhost:8080/health || exit 1
+HealthInterval=30s
+HealthTimeout=3s
+HealthRetries=3
+HealthStartPeriod=10s
+
+[Service]
+Restart=always
+TimeoutStopSec=70
+
+[Install]
+WantedBy=default.target

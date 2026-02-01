@@ -1,0 +1,53 @@
+---
+# AdGuardHome Sync service deployment configuration
+
+# Application settings
+adguardhome_sync_domain: "adguardhome-sync.kerberos.fassbender.contact"
+adguardhome_sync_api_port: 8082
+
+# Data directory for config
+adguardhome_sync_config_dir: "{{ podman_service_dir }}/adguardhome-sync"
+
+# Cron schedule for sync (default: every 2 hours)
+adguardhome_sync_cron: "0 */2 * * *"
+adguardhome_sync_run_on_start: true
+adguardhome_sync_continue_on_error: false
+
+# Origin AdGuard Home instance (primary)
+adguardhome_sync_origin_url: "http://localhost:3180" # Points to AdGuard Home admin port
+adguardhome_sync_origin_username: "admin"
+adguardhome_sync_origin_password: "changeme"
+
+# Replica AdGuard Home instances
+adguardhome_sync_replicas:
+  - url: "http://adguard.kerberos.fassbender.contact:3000"
+    username: "admin"
+    password: "changeme"
+
+# API settings
+adguardhome_sync_api_enabled: true
+adguardhome_sync_api_username: "admin"
+adguardhome_sync_api_password: "changeme"
+adguardhome_sync_api_dark_mode: true
+
+# Feature flags (sync options)
+adguardhome_sync_features:
+  dns:
+    accessLists: true
+    serverConfig: true
+    rewrites: true
+  dhcp:
+    serverConfig: false # Usually don't sync DHCP between instances
+    staticLeases: false
+  generalSettings: true
+  queryLogConfig: true
+  statsConfig: true
+  clientSettings: true
+  services: true
+  filters: true
+  theme: true
+  tlsConfig: false
+
+# Podman user and network
+podman_user: "{{ podman_username }}"
+adguardhome_network: "adguardhome_net"
