@@ -54,13 +54,13 @@ adguardhome_sync_run_on_start: true
 adguardhome_sync_continue_on_error: false
 
 # Origin AdGuard Home instance
-adguardhome_sync_origin_url: "http://192.168.1.249"  # External origin
+adguardhome_sync_origin_url: "http://192.168.1.249" # External origin
 adguardhome_sync_origin_username: "admin"
 adguardhome_sync_origin_password: "changeme"
 
 # Replica instances
 adguardhome_sync_replicas:
-  - url: "http://adguardhome"  # Local replica via container name
+  - url: "http://adguardhome" # Local replica via container name
     username: "admin"
     password: "changeme"
 
@@ -72,7 +72,7 @@ adguardhome_sync_api_dark_mode: true
 
 # Podman user and network
 podman_user: "{{ podman_username }}"
-adguardhome_network: "adguardhome_net"  # Dedicated isolated network
+adguardhome_network: "adguardhome_net" # Dedicated isolated network
 ```
 
 ### Environment File (.env)
@@ -85,6 +85,7 @@ Credentials are stored in a separate `.env` file at `{{ adguardhome_sync_config_
 - Managed manually after initial deployment
 
 The `.env` file contains:
+
 ```bash
 ORIGIN_URL=http://192.168.1.249
 ORIGIN_USERNAME=admin
@@ -101,8 +102,9 @@ API_PASSWORD=changeme
 ### Configuring Instances
 
 **Origin Instance** (external AdGuard Home):
+
 ```yaml
-adguardhome_sync_origin_url: "http://192.168.1.249"  # Use actual IP/hostname and port
+adguardhome_sync_origin_url: "http://192.168.1.249" # Use actual IP/hostname and port
 adguardhome_sync_origin_username: "admin"
 adguardhome_sync_origin_password: "changeme"
 ```
@@ -110,14 +112,16 @@ adguardhome_sync_origin_password: "changeme"
 **Replica Instances**:
 
 For a local replica (same Podman network):
+
 ```yaml
 adguardhome_sync_replicas:
-  - url: "http://adguardhome"  # Container name (both on adguardhome_net)
+  - url: "http://adguardhome" # Container name (both on adguardhome_net)
     username: "admin"
     password: "changeme"
 ```
 
 For external replicas:
+
 ```yaml
 adguardhome_sync_replicas:
   - url: "http://192.168.1.10:80"
@@ -126,10 +130,11 @@ adguardhome_sync_replicas:
   - url: "https://adguard.example.com"
     username: "admin"
     password: "changeme"
-    insecureSkipVerify: true  # For self-signed certificates
+    insecureSkipVerify: true # For self-signed certificates
 ```
 
 **Important**: Use the correct port for each instance:
+
 - External instances with macvlan: typically port 80 or 443
 - Local container on same network: use container name with port 80
 - Host-published ports: use the mapped external port
@@ -201,12 +206,13 @@ curl -X POST http://localhost:8080/sync \
 ### Web UI
 
 Access the web interface at `http://<server- -f
-```
+
+````
 
 Common issues:
 
 - **Authentication failures**: Verify credentials in `.env` file at `{{ adguardhome_sync_config_dir }}/.env`
-- **Network connectivity**: 
+- **Network connectivity**:
   - For external instances: ensure firewall allows connections
   - For local replicas: verify both containers are on `adguardhome_net` network
 - **DNS resolution**: Container names only resolve within the same Podman network
@@ -225,19 +231,22 @@ podman exec adguardhome-sync wget -O- http://adguardhome/control/status
 
 # Test external origin connectivity
 podman exec adguardhome-sync wget -O- http://192.168.1.249/control/status
-```
+````
 
 ### Origin/Replica URL Configuration
 
 **For local AdGuard Home replica** (same host):
+
 - Use container name: `http://adguardhome` or `http://adguardhome:80`
 - Both containers must be on `adguardhome_net` network
 
 **For external AdGuard Home instances**:
+
 - Use IP/hostname with correct port: `http://192.168.1.249:80`
 - Check which port the admin interface is published on (often 80, 443, or 3000)
 
 **Do NOT use**:
+
 - `localhost` (refers to the sync container itself)
 - Host-published ports (like 3180) for container-to-container communication
 
@@ -258,8 +267,10 @@ Check logs for detailed error messages:
 ```bash
 journalctl --user -u adguardhome-sync -n 100
 ```
+
 {{ adguardhome_sync_config_dir }}/.env (created once, not overwritten)
-```
+
+````
 
 ## Backup Considerations
 
@@ -272,7 +283,7 @@ restic_global_excludes:
   - "*/tmp/*"
   - "*.log"
   - "*/.env"  # Exclude all .env files
-```
+````
 
 The YAML configuration file can be safely backed up as it no longer contains credentials.
 
@@ -286,7 +297,7 @@ The YAML configuration file can be safely backed up as it no longer contains cre
 - Restrict API access to localhost or trusted networks (`PublishPort=127.0.0.1:...`)
 - Review which features should be synced (disable DHCP sync unless needed)
 - Both AdGuard Home containers run on isolated `adguardhome_net` network
-The origin URL should point to the **local AdGuard Home admin interface**:
+  The origin URL should point to the **local AdGuard Home admin interface**:
 
 - If running on the same host: `http://localhost:3180` (AdGuard Home admin port)
 - If on different host: `http://<adguardhome-ip>:<port>`
