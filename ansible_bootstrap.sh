@@ -1,23 +1,56 @@
 #!/bin/bash
-# This script bootstraps an Ansible control node on a fresh ubuntu system based on an 'ansbible' user, having sudo and ssh access.
+# This script bootstraps an Ansible control node on a fresh Linux system (Ubuntu/Fedora compatible) based on an 'ansible' user, having sudo and ssh access.
 
 SSH_PUBLIC_KEYS=(
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBpiHVEMPB9KT0nzBBV8aMHeIcq0siEwdwZxstnfiNLd enno-fassbender@web.de"
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOmUS65IKukjmAtEFAXhRnVD/JceznOHQCTPpUZJWkFE root@Kerberos.localdomain"
 )
 
-APT_CMD="apt-get"
+PKG_CMD=""
+PKG_UPDATE_CMD=""
+PKG_INSTALL_CMD=""
 ANSIBLE_HOME="/home/ansible"
 ANSIBLE_SSH_DIR="$ANSIBLE_HOME/.ssh"
 AUTHORIZED_KEYS_FILE="$ANSIBLE_SSH_DIR/authorized_keys"
 SUDOERS_CONFIG_LINE="ansible ALL=(ALL) NOPASSWD:ALL"
-SUDUOERS_FILE="/etc/sudoers.d/90-ansible-nopasswd"
+SUDOERS_FILE="/etc/sudoers.d/90-ansible-nopasswd"
 SUDO_GROUP="sudo"
 
-#Check if running as root
+# Check if running as root
 if [ "$EUID" -ne 0 ]; then
   echo "Please run as root"
   exit 1
+fi
+
+# Detect package manager and set distro-specific variables
+if command -v dnf >/dev/null 2>&1; then
+  PKG_CMD="dnf"
+  PKG_UPDATE_CMD="dnf makecache"
+  PKG_INSTALL_CMD="dnf install -y"
+  SUDO_GROUP="wheel"
+elif command -v yum >/dev/null 2>&1; then
+  PKG_CMD="yum"
+  PKG_UPDATE_CMD="yum makecache"
+  PKG_INSTALL_CMD="yum install -y"
+  SUDO_GROUP="wheel"
+elif command -v apt-get >/dev/null 2>&1; then
+  PKG_CMD="apt-get"
+  PKG_UPDATE_CMD="apt-get update -y"
+  PKG_INSTALL_CMD="apt-get install -y"
+  SUDO_GROUP="sudo"
+else
+  echo "Unsupported package manager. Supported: dnf, yum, apt-get."
+  exit 1
+fi
+
+OS_RELEASE_FILE="/etc/os-release"
+SSH_SERVICE="ssh"
+if [ -f "$OS_RELEASE_FILE" ]; then
+  . "$OS_RELEASE_FILE"
+  echo "Detected distribution: ${NAME:-unknown}"
+  if [ "${ID:-}" = "fedora" ] || [ "${ID:-}" = "rhel" ] || [ "${ID:-}" = "centos" ] || [ "${ID:-}" = "rocky" ] || [ "${ID:-}" = "almalinux" ]; then
+    SSH_SERVICE="sshd"
+  fi
 fi
 
 echo "Starting Ansible control node bootstrap..."
@@ -27,7 +60,7 @@ echo ""
 echo "---Installing OpenSSH Server if not present---"
 
 echo "Updating package lists..."
-$APT_CMD update -y
+$PKG_UPDATE_CMD
 if [ $? -ne 0 ]; then
   echo "Failed to update package lists. Exiting."
   # Do not exit here, try installing openssh-server anyway
@@ -36,7 +69,7 @@ fi
 
 #install openssh-server
 echo "Installing openssh-server..."
-$APT_CMD install -y openssh-server
+$PKG_INSTALL_CMD openssh-server
 if [ $? -ne 0 ]; then
   echo "Failed to install openssh-server. Exiting."
   exit 1
@@ -45,10 +78,10 @@ echo "OpenSSH Server installation completed."
 
 # --- Step 2: Persistently enable sshd.service ---
 echo ""
-echo "--- Enabling sshd.service to start on boot---"
-systemctl enable --now ssh
+echo "--- Enabling $SSH_SERVICE.service to start on boot---"
+systemctl enable --now "$SSH_SERVICE"
 if [ $? -ne 0 ]; then
-  echo "Failed to enable/start sshd.service. Exiting."
+  echo "Failed to enable/start $SSH_SERVICE.service. Exiting."
   exit 1
 fi
 echo "sshd.service is enabled and started."
@@ -179,14 +212,14 @@ echo ""
 echo "---Configuring passwordless sudo for 'ansible' user---"
 
 #Check if sudoers file already exists
-if [ -f "$SUDUOERS_FILE" ]; then
-    echo "Sudoers file $SUDUOERS_FILE already exists. Skipping creation."
+if [ -f "$SUDOERS_FILE" ]; then
+    echo "Sudoers file $SUDOERS_FILE already exists. Skipping creation."
 fi
 
-echo "Creating sudoers file $SUDUOERS_FILE with NOPASSWD configuration..."
+echo "Creating sudoers file $SUDOERS_FILE with NOPASSWD configuration..."
 
 #use echo to write the line to the sudoers file
-echo "$SUDOERS_CONFIG_LINE" > "$SUDUOERS_FILE"
+echo "$SUDOERS_CONFIG_LINE" > "$SUDOERS_FILE"
 if [ $? -ne 0 ]; then
   echo "Failed to create sudoers file. Exiting."
   exit 1
@@ -194,8 +227,8 @@ fi
 echo "Sudoers file created."
 
 #Set ownership and permissions
-echo "Setting ownership of $SUDUOERS_FILE to root:root"
-chown root:root "$SUDUOERS_FILE"
+echo "Setting ownership of $SUDOERS_FILE to root:root"
+chown root:root "$SUDOERS_FILE"
 if [ $? -ne 0 ]; then
   echo "Failed to set ownership for sudoers file. Exiting."
   exit 1
@@ -203,8 +236,8 @@ fi
 echo "Ownership set to root:root."
 
 #Set permissions to 440
-echo "Setting permissions of $SUDUOERS_FILE to 440"
-chmod 440 "$SUDUOERS_FILE"
+echo "Setting permissions of $SUDOERS_FILE to 440"
+chmod 440 "$SUDOERS_FILE"
 if [ $? -ne 0 ]; then
   echo "Failed to set permissions for sudoers file. Exiting."
   exit 1

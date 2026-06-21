@@ -1,32 +1,54 @@
 # Ansible Setup
 
-Ansible scripts for setting up ubuntu systems.
+Ansible scripts for setting up Linux systems (Ubuntu and Fedora supported).
 
 ## Target setup
 
 > [!IMPORTANT]
 > When setting up a new system, this is the only section you need to do.
 
-After successful installation of the ubuntu system, you need to follow these steps to bootstrap the machine for ansible:
+After successful installation of the target Linux system, you need to follow these steps to bootstrap the machine for ansible:
 
 - login with the created user
-- Open this README on the target system
-- Download the [bootstrap_ansible.sh](./ansible_bootstrap.sh) script.
+- open this README on the target system
+- download the [ansible_bootstrap.sh](./ansible_bootstrap.sh) script
 - navigate to the downloaded script in a terminal
-- Make the script executable `chmod +x ansible_bootstrap,sh`
-- Execute the script with root permissions `sudo ./ansible_bootstrap.sh`
-- Get your machine staged by an ansible admin
+- make the script executable `chmod +x ansible_bootstrap.sh`
+- execute the script with root permissions `sudo ./ansible_bootstrap.sh`
+- get your machine staged by an ansible admin
 
 ## Install ansible
 
 > [!WARNING]
 > The following sections are only for ansible admins and are not required to be executed for getting your system staged.
 
-<details open>
+<details>
 <summary>Ubuntu 24.04</summary>
 
 ```bash
 sudo apt install ansible
+```
+
+</details>
+
+<details>
+<summary>Fedora</summary>
+
+```bash
+sudo dnf install ansible
+```
+
+</details>
+
+<details>
+<summary>macOS</summary>
+
+```bash
+# Using Homebrew (recommended)
+brew install ansible
+
+# Or using pip3
+pip3 install ansible
 ```
 
 </details>
