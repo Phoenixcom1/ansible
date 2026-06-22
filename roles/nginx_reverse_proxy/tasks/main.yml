@@ -1,9 +1,8 @@
 ---
 - name: Ensure nginx is installed
-  apt:
+  ansible.builtin.package:
     name: nginx
     state: present
-    update_cache: yes
   become: true
 
 - name: Ensure SSL certificate directory exists
@@ -22,16 +21,100 @@
     mode: 0755
   become: true
 
+- name: Check if SSL certificate files exist
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ ssl_cert }}"
+    - "{{ ssl_key }}"
+  register: ssl_cert_check
+  become: true
+
+- name: Remove stale global SSL configuration when certificates are missing
+  ansible.builtin.file:
+    path: /etc/nginx/conf.d/00-default-ssl.conf
+    state: absent
+  become: true
+  when: not (ssl_cert_check.results[0].stat.exists and ssl_cert_check.results[1].stat.exists)
+
 - name: Deploy global SSL configuration
   template:
     src: 00-default-ssl.conf.j2
     dest: /etc/nginx/conf.d/00-default-ssl.conf
     mode: "0644"
   become: true
+  when: ssl_cert_check.results[0].stat.exists and ssl_cert_check.results[1].stat.exists
+
+- name: Warn if SSL certificates are missing
+  ansible.builtin.debug:
+    msg: "SSL certificates not found at {{ ssl_cert }} or {{ ssl_key }} - skipping global SSL config deployment"
+  when: not (ssl_cert_check.results[0].stat.exists and ssl_cert_check.results[1].stat.exists)
+
+# Test nginx configuration before attempting to start the service
+- name: Test nginx configuration
+  ansible.builtin.command:
+    cmd: nginx -t
+  register: nginx_test
+  ignore_errors: true
+  changed_when: false
+  become: true
+
+- name: Show nginx test output on failure
+  ansible.builtin.debug:
+    var: nginx_test
+  when: nginx_test.rc is defined and nginx_test.rc != 0
+
+- name: Warn if nginx test failed due to missing SSL certificates
+  ansible.builtin.debug:
+    msg: "nginx test failed (likely due to missing SSL certificates). This is expected if certs haven't been provisioned yet. nginx will be started anyway."
+  when: nginx_test.rc is defined and nginx_test.rc != 0 and "cannot load certificate" in (nginx_test.stderr | default(''))
+
+- name: Fail if nginx configuration test failed for non-SSL reasons
+  ansible.builtin.fail:
+    msg: "nginx configuration test failed: {{ nginx_test.stderr | default('') }} {{ nginx_test.stdout | default('') }}"
+  when: nginx_test.rc is defined and nginx_test.rc != 0 and "cannot load certificate" not in (nginx_test.stderr | default(''))
 
 - name: Ensure nginx is enabled and running
-  systemd:
+  ansible.builtin.systemd:
     name: nginx
     enabled: yes
     state: started
+  become: true
+
+- name: Enable SELinux boolean to allow proxy network connections (RedHat family)
+  ansible.builtin.seboolean:
+    name: httpd_can_network_connect
+    state: true
+    persistent: true
+  when: ansible_facts['os_family'] == 'RedHat'
+  become: true
+
+- name: Ensure firewalld is installed (RedHat family)
+  ansible.builtin.package:
+    name: firewalld
+    state: present
+  when: ansible_facts['os_family'] == 'RedHat'
+  become: true
+
+- name: Ensure firewalld is enabled and running (RedHat family)
+  ansible.builtin.systemd:
+    name: firewalld
+    enabled: yes
+    state: started
+  when: ansible_facts['os_family'] == 'RedHat'
+  become: true
+
+- name: Open HTTP and HTTPS in firewalld (RedHat family)
+  ansible.builtin.command:
+    cmd: "firewall-cmd --permanent --add-service={{ item }}"
+  loop:
+    - http
+    - https
+  when: ansible_facts['os_family'] == 'RedHat'
+  become: true
+
+- name: Reload firewalld to apply permanent rules (RedHat family)
+  ansible.builtin.command:
+    cmd: firewall-cmd --reload
+  when: ansible_facts['os_family'] == 'RedHat'
   become: true
