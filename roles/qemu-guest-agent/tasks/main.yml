@@ -1,7 +1,6 @@
 ---
 - name: Install qemu-guest-agent package
-  apt:
+  ansible.builtin.package:
     name: "{{ qemu_guest_agent_package }}"
     state: present
-    update_cache: yes
   become: true
