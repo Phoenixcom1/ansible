@@ -32,18 +32,6 @@
     state: started
   become: true
 
-# spin-off project of FreeRDP
-- name: Install winpr (Ubuntu)
-  ansible.builtin.apt:
-    name: winpr-utils
-  become: true
-  when: ansible_facts['os_family'] == 'Debian'
-
-- name: Skip winpr install on Fedora
-  ansible.builtin.debug:
-    msg: "Skipping winpr install on Fedora"
-  when: ansible_facts['os_family'] == 'RedHat'
-
 - name: Add user to kvm group
   become: true
   ansible.builtin.user:
@@ -86,60 +74,3 @@
     msg: ".smbcredentials file not found on controller - skipping copy"
   when: not smbcreds_controller.stat.exists
 
-- name: Check if .smbcredentials exists on controller
-  stat:
-    path: "{{ lookup('env', 'HOME') }}/.paperless_smbcreds"
-  register: smbcreds_controller
-  delegate_to: localhost
-  become: false
-  changed_when: false
-
-- name: Copy .smbcredentials file to target root home
-  ansible.builtin.copy:
-    src: "{{ lookup('env', 'HOME') }}/.paperless_smbcreds"
-    dest: /root/.paperless_smbcreds
-    owner: root
-    group: root
-    mode: "0600"
-  become: true
-  when: smbcreds_controller.stat.exists
-  register: smbcreds_copied
-
-- name: Display SMB credentials copy status
-  debug:
-    msg: ".paperless_smbcreds file copied to /root/.paperless_smbcreds"
-  when: smbcreds_copied.changed
-
-- name: Display SMB credentials not found message
-  debug:
-    msg: ".paperless_smbcreds file not found on controller - skipping copy"
-  when: not smbcreds_controller.stat.exists
-
-- name: Check if .smb_restic_creds exists on controller
-  stat:
-    path: "{{ lookup('env', 'HOME') }}/.smb_restic_creds"
-  register: smb_restic_creds_controller
-  delegate_to: localhost
-  become: false
-  changed_when: false
-
-- name: Copy .smb_restic_creds file to target root home
-  ansible.builtin.copy:
-    src: "{{ lookup('env', 'HOME') }}/.smb_restic_creds"
-    dest: /root/.smb_restic_creds
-    owner: root
-    group: root
-    mode: "0600"
-  become: true
-  when: smb_restic_creds_controller.stat.exists
-  register: smb_restic_creds_copied
-
-- name: Display SMB restic credentials copy status
-  debug:
-    msg: ".smb_restic_creds file copied to /root/.smb_restic_creds"
-  when: smb_restic_creds_copied.changed
-
-- name: Display SMB restic credentials not found message
-  debug:
-    msg: ".smb_restic_creds file not found on controller - skipping copy"
-  when: not smb_restic_creds_controller.stat.exists

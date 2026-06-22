@@ -27,6 +27,35 @@
   become: true
   when: restic_nas_enabled
 
+- name: Check if .smb_restic_creds exists on controller
+  stat:
+    path: "{{ lookup('env', 'HOME') }}/.smb_restic_creds"
+  register: restic_smb_creds_controller
+  delegate_to: localhost
+  become: false
+  changed_when: false
+
+- name: Copy .smb_restic_creds file to target root home
+  ansible.builtin.copy:
+    src: "{{ lookup('env', 'HOME') }}/.smb_restic_creds"
+    dest: /root/.smb_restic_creds
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  when: restic_smb_creds_controller.stat.exists
+  register: restic_smb_creds_copied
+
+- name: Display restic SMB credentials copy status
+  debug:
+    msg: ".smb_restic_creds file copied to /root/.smb_restic_creds"
+  when: restic_smb_creds_copied.changed
+
+- name: Display restic SMB credentials not found message
+  debug:
+    msg: ".smb_restic_creds file not found on controller - skipping copy"
+  when: not restic_smb_creds_controller.stat.exists
+
 - name: Mount NAS backup directory
   mount:
     path: "{{ restic_nas_mount_point }}"

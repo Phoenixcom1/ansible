@@ -77,6 +77,35 @@
   become: true
   when: paperless_enable_network_mount and paperless_network_mount_type == "cifs"
 
+- name: Check if .paperless_smbcreds exists on controller
+  stat:
+    path: "{{ lookup('env', 'HOME') }}/.paperless_smbcreds"
+  register: paperless_smbcreds_controller
+  delegate_to: localhost
+  become: false
+  changed_when: false
+
+- name: Copy .paperless_smbcreds file to target root home
+  ansible.builtin.copy:
+    src: "{{ lookup('env', 'HOME') }}/.paperless_smbcreds"
+    dest: /root/.paperless_smbcreds
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  when: paperless_smbcreds_controller.stat.exists
+  register: paperless_smbcreds_copied
+
+- name: Display Paperless SMB credentials copy status
+  debug:
+    msg: ".paperless_smbcreds file copied to /root/.paperless_smbcreds"
+  when: paperless_smbcreds_copied.changed
+
+- name: Display Paperless SMB credentials not found message
+  debug:
+    msg: ".paperless_smbcreds file not found on controller - skipping copy"
+  when: not paperless_smbcreds_controller.stat.exists
+
 - name: Create consume mount directory
   file:
     path: "{{ paperless_consume_dir }}"
