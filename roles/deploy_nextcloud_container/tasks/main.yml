@@ -1,0 +1,213 @@
+---
+# Nextcloud AIO deployment using Podman Quadlet (mastercontainer)
+
+# Discover podman user's UID and GID
+- name: Get podman user info
+  getent:
+    database: passwd
+    key: "{{ podman_user }}"
+  register: podman_user_info
+  changed_when: false
+
+- name: Extract podman user UID and GID
+  set_fact:
+    nextcloud_uid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][1] }}"
+    nextcloud_gid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][2] }}"
+  when: podman_user in podman_user_info.ansible_facts.getent_passwd
+
+- name: Define podman socket path for rootless user
+  set_fact:
+    nextcloud_podman_socket: "/run/user/{{ nextcloud_uid }}/podman/podman.sock"
+
+# Ensure user-level systemd and podman socket are available before checks
+- name: Enable lingering for podman user
+  command: loginctl enable-linger {{ podman_user }}
+  become: true
+  changed_when: false
+
+- name: Ensure rootless podman socket is enabled and started
+  systemd:
+    name: podman.socket
+    enabled: yes
+    state: started
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ nextcloud_uid }}"
+
+# Create required directories
+- name: Create Nextcloud AIO directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+  loop:
+    - "{{ nextcloud_repo_path }}"
+    - "{{ nextcloud_aio_config_dir }}"
+    - "{{ nextcloud_aio_datadir }}"
+
+# Verify podman socket exists (AIO talks to container engine through this socket)
+- name: Check if podman socket exists
+  stat:
+    path: "{{ nextcloud_podman_socket }}"
+  become: true
+  register: podman_socket_stat
+
+- name: Fail if podman socket is missing
+  fail:
+    msg: |
+      Podman socket not found at {{ nextcloud_podman_socket }}.
+      Start/enable rootless podman socket first:
+      systemctl --user enable --now podman.socket
+
+      Note: Nextcloud AIO is Docker-first; this role uses Podman Docker-API compatibility.
+  when: not podman_socket_stat.stat.exists
+
+# Ensure reruns can recover from stale failed units/containers that keep ports bound
+- name: Stop existing Nextcloud AIO mastercontainer service if present
+  systemd:
+    name: "{{ nextcloud_aio_container }}"
+    state: stopped
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ nextcloud_uid }}"
+  failed_when: false
+
+- name: Reset failed state for Nextcloud AIO service
+  command: systemctl --user reset-failed {{ nextcloud_aio_container }}
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ nextcloud_uid }}"
+  changed_when: false
+  failed_when: false
+
+- name: Remove stale Nextcloud AIO mastercontainer if present
+  command: podman rm -f {{ nextcloud_aio_container }}
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ nextcloud_uid }}"
+  register: stale_mastercontainer_removed
+  changed_when: stale_mastercontainer_removed.rc == 0
+  failed_when: false
+
+# Create Quadlet and user-systemd directories
+- name: Ensure Quadlet directory exists
+  file:
+    path: "/home/{{ podman_user }}/.config/containers/systemd"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+
+- name: Ensure user systemd directory exists
+  file:
+    path: "/home/{{ podman_user }}/.config/systemd/user"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+
+# Deploy AIO mastercontainer Quadlet
+- name: Deploy Nextcloud AIO mastercontainer Quadlet
+  template:
+    src: nextcloud-aio-mastercontainer.container.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/{{ nextcloud_aio_container }}.container"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: aio_quadlet_deployed
+
+# Reload user systemd (Quadlet generation)
+- name: Reload systemd user daemon (Quadlet generation)
+  systemd:
+    daemon_reload: yes
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ nextcloud_uid }}"
+
+- name: Check if any Quadlet changed
+  set_fact:
+    any_quadlet_changed: "{{ aio_quadlet_deployed.changed }}"
+
+- name: Restart Nextcloud AIO mastercontainer service if changed
+  systemd:
+    name: "{{ nextcloud_aio_container }}"
+    state: restarted
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ nextcloud_uid }}"
+  when: any_quadlet_changed
+
+- name: Ensure Nextcloud AIO mastercontainer service is enabled and started
+  systemd:
+    name: "{{ nextcloud_aio_container }}"
+    enabled: yes
+    state: started
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ nextcloud_uid }}"
+  when: not any_quadlet_changed
+
+# Health check
+- name: Wait for Nextcloud AIO mastercontainer to be reachable
+  command: podman healthcheck run {{ nextcloud_aio_container }}
+  become: true
+  become_user: "{{ podman_user }}"
+  register: aio_health
+  retries: 20
+  delay: 5
+  until: aio_health.rc == 0
+  changed_when: false
+  ignore_errors: true
+
+# Optional hint for Talk HPB integration (dedicated server)
+- name: Display Talk HPB integration hint
+  debug:
+    msg: |
+      Talk HPB is enabled in vars.
+      Configure Nextcloud Talk app with your dedicated backend URL and shared secret:
+      - URL: {{ nextcloud_talk_hpb_url }}
+      - Secret: {{ nextcloud_talk_hpb_secret }}
+      Use the Nextcloud admin UI (Talk settings) after initial AIO setup.
+  when: nextcloud_enable_talk_hpb | bool
+
+- name: Display Nextcloud AIO deployment result
+  debug:
+    msg: |
+      Nextcloud AIO deployed successfully via Podman Quadlet!
+      - Service: {{ nextcloud_aio_container }}.service
+      - AIO interface: https://{{ nextcloud_aio_interface_bind_ip }}:{{ nextcloud_aio_interface_port }} (access by IP in browser)
+      - Nextcloud domain: https://{{ nextcloud_domain }} (via nginx reverse proxy)
+      - Database: PostgreSQL (managed internally by AIO, official default)
+      - Office: Included in AIO (optional, enabled from AIO interface)
+      - Talk HPB Planned: {{ nextcloud_enable_talk_hpb }}
+      - Manage: systemctl --user status {{ nextcloud_aio_container }}
+      - Health: {% if aio_health.rc == 0 %}PASSED{% else %}FAILED (check logs){% endif %}
+
+# Deploy nginx reverse proxy configuration
+- name: Deploy nginx reverse proxy configuration for Nextcloud AIO
+  template:
+    src: nextcloud.conf.j2
+    dest: "/etc/nginx/conf.d/{{ nextcloud_domain }}.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: Reload nginx
