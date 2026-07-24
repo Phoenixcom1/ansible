@@ -66,7 +66,7 @@
 
         - name: Create backup timestamp
           set_fact:
-            backup_timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
+            backup_timestamp: "{{ ansible_facts['date_time']['iso8601_basic_short'] }}"
 
         - name: Create backup directory
           file:
@@ -163,6 +163,16 @@
 
         - name: Update containers with new images
           block:
+            - name: Stop Paperless stack target for update
+              systemd:
+                name: paperless-stack.target
+                state: stopped
+                scope: user
+              become: true
+              become_user: "{{ podman_user }}"
+              environment:
+                XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+
             - name: Stop all Paperless services for update
               systemd:
                 name: "{{ item }}"
@@ -197,7 +207,7 @@
             - name: Start Paperless stack with new images
               systemd:
                 name: paperless-stack.target
-                state: started
+                state: restarted
                 scope: user
               become: true
               become_user: "{{ podman_user }}"

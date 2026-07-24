@@ -90,7 +90,7 @@
 
         - name: Create backup timestamp
           set_fact:
-            backup_timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
+            backup_timestamp: "{{ ansible_facts['date_time']['iso8601_basic_short'] }}"
 
         - name: Create backup directory
           file:
