@@ -15,22 +15,14 @@
     name: "*"
     state: latest
 
-- name: Install Linux Standard Base
-  ansible.builtin.apt:
-    name: lsb-release
-  become: true
-  when:
-    - ansible_distribution | string == 'Ubuntu'
-    - ansible_distribution_release | string == 'noble'
-
 - name: Install Curl
   ansible.builtin.package:
     name: curl
   become: true
 
-- name: Install avahi-daemon for mDNS (.local) domain resolution
+- name: Install avahi package for mDNS (.local) domain resolution
   ansible.builtin.package:
-    name: avahi-daemon
+    name: "{{ 'avahi-daemon' if ansible_facts['os_family'] == 'Debian' else 'avahi' }}"
   become: true
 
 - name: Ensure avahi-daemon is enabled and running
@@ -41,12 +33,18 @@
   become: true
 
 # spin-off project of FreeRDP
-- name: Install winpr
-  ansible.builtin.package:
+- name: Install winpr (Ubuntu)
+  ansible.builtin.apt:
     name: winpr-utils
   become: true
+  when: ansible_facts['os_family'] == 'Debian'
 
-- name: Add user to kvm groupe
+- name: Skip winpr install on Fedora
+  ansible.builtin.debug:
+    msg: "Skipping winpr install on Fedora"
+  when: ansible_facts['os_family'] == 'RedHat'
+
+- name: Add user to kvm group
   become: true
   ansible.builtin.user:
     name: "{{ local_username }}"

@@ -12,6 +12,16 @@ all:
       #bridge_name: "br-vlan107" # Host bridge on VLAN 107
       #bridge_ip: "192.168.107.2/24" # IP for the host bridge
       xrdp: true
+    podman-vm:
+      static_ip: 192.168.1.68
+      static_gateway: "{{ gateway_lab}}"
+      ansible_host: "{{ static_ip }}"
+      local_username: "podman_vm"
+      #vlan_id: 107
+      #vlan_ip_address: "" # Leave empty; IP will be on the bridge instead
+      #bridge_name: "br-vlan107" # Host bridge on VLAN 107
+      #bridge_ip: "192.168.107.2/24" # IP for the host bridge
+      xrdp: true
   vars:
     ansible_user: ansible
     gateway_lab: 192.168.1.1

@@ -1,0 +1,36 @@
+- hosts: all
+  # Leaving those empty causes issues e.g. when pulling container images.
+  # environment:
+  #   http_proxy:
+  #   https_proxy:
+
+  # vars_prompt:
+  #   - name: cryptsetup_user_passphrase
+  #     prompt: "Enter the passphrase for the encrypted partitions"
+  #     private: true
+  #     confirm: true
+
+  roles:
+    # NOTE: Roles below may require Fedora-specific adjustments (dnf/package module compatibility)
+    - common
+    #- local-user
+    #- qemu-guest-agent
+    #- podman
+    #- podman-user
+    #- podman-vlan-setup
+    #- nginx_reverse_proxy
+    #- podman-compose-deploy
+    #- deploy_homepage_container
+    #- deploy_jellyfin_container
+    #- deploy_vaultwarden_container
+    #- deploy_unifi_controller_container
+    #- deploy_paperless_container
+    #- deploy_frigate_container
+    #- deploy_immich_container
+    #- restic-backup
+    #- deploy_whisper_container
+    #- deploy_piper_container
+    #- deploy_openwakeword_container
+    #- deploy_openwebui_container
+    #- deploy_adguardhome_container
+    #- deploy_adguardhome_sync_container
