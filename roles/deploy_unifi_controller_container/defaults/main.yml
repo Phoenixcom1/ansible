@@ -10,6 +10,7 @@
 #
 # SSH credentials can be found in the UniFi Controller UI under
 # Settings -> search for SSH
+# Or default ui / ui
 #------------------------------------------------------------------
 #------------------------------------------------------------------
 
@@ -23,9 +24,42 @@ unifi_repo_path: "{{ podman_service_dir }}/{{ unifi_project_name }}"
 unifi_config_dir: "{{ podman_service_dir }}/{{ unifi_project_name }}/data"
 
 # UniFi application settings
-unifi_domain: "unifi.kerberos.fassbender.contact"
+unifi_service_name: "unifi"
+unifi_container_name: "{{ unifi_service_name }}"
+unifi_quadlet_name: "{{ unifi_service_name }}"
+unifi_domain: "unifi2.kerberos.fassbender.contact"
 unifi_port: 8443
 unifi_port_internal: 8443
+unifi_image: "docker.io/linuxserver/unifi-network-application:10.4.57"
+unifi_pull_policy: "missing"
+unifi_auto_update: "registry"
+unifi_linuxserver_mode: "{{ 'linuxserver/unifi-network-application' in unifi_image }}"
+unifi_container_data_path: "{{ '/config' if unifi_linuxserver_mode else '/unifi' }}"
+unifi_run_as_host_user: "{{ not unifi_linuxserver_mode }}"
+
+# Preflight storage check for rootless Podman image pulls
+unifi_podman_storage_path: "/home/{{ podman_user }}/.local/share/containers/storage"
+unifi_min_free_space_mb: 3072
+
+# LinuxServer image requires MongoDB; managed as part of this role's Quadlet stack
+unifi_mongo_service_name: "unifi-db"
+unifi_mongo_container_name: "unifi-db"
+unifi_mongo_image: "docker.io/library/mongo:4.4"
+unifi_mongo_pull_policy: "missing"
+unifi_mongo_auto_update: "registry"
+unifi_mongo_data_dir: "{{ podman_service_dir }}/unifi-mongodb/data"
+unifi_mongo_init_dir: "{{ podman_service_dir }}/unifi-mongodb/init"
+unifi_mongo_init_script_path: "{{ unifi_mongo_init_dir }}/init-mongo.sh"
+unifi_mongo_env_file: "{{ unifi_mongo_init_dir }}/.env"
+
+unifi_mongo_host: "unifi-db"
+unifi_mongo_port: 27017
+unifi_mongo_dbname: "unifi"
+unifi_mongo_user: "unifi"
+unifi_mongo_pass: "change_me_unifi_db_password"
+unifi_mongo_auth_source: "admin"
+unifi_mongo_root_user: "root"
+unifi_mongo_root_pass: "change_me_unifi_root_password"
 
 # Network ports (for device communication, STUN, etc.)
 unifi_device_port: 8080
@@ -34,6 +68,10 @@ unifi_speedtest_port: 6789
 unifi_http_portal_port: 8880
 unifi_https_portal_port: 8843
 unifi_ap_discovery_port: 10001
+unifi_ssdp_port: 1900
+unifi_syslog_port: 5514
+unifi_expose_ssdp_port: true
+unifi_expose_syslog_port: true
 
 # Environment variables
 unifi_timezone: "Europe/Paris"

@@ -71,7 +71,7 @@
     path: /etc/resolv.conf
     state: absent
   become: true
-  when: ansible_facts['os_family'] == 'Debian'
+  when: host_is_debian | default(ansible_facts['os_family'] == 'Debian')
 
 - name: Link resolv.conf to systemd-resolved upstream DNS
   file:
@@ -80,7 +80,7 @@
     state: link
     force: yes
   become: true
-  when: ansible_facts['os_family'] == 'Debian'
+  when: host_is_debian | default(ansible_facts['os_family'] == 'Debian')
 
 # Flush handlers to ensure systemd-resolved is restarted before AdGuard Home starts
 - name: Apply systemd-resolved configuration changes

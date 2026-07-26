@@ -1,4 +1,4 @@
-# unifi.container
+# {{ unifi_quadlet_name }}.container
 # Managed by Ansible - Podman Quadlet for UniFi Network Controller
 # https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html
 
@@ -7,11 +7,16 @@ Description=UniFi Network Controller
 Documentation=https://help.ui.com/
 Wants=network-online.target
 After=network-online.target
+{% if unifi_linuxserver_mode %}
+Wants={{ unifi_mongo_service_name }}.service
+After={{ unifi_mongo_service_name }}.service
+{% endif %}
 
 [Container]
-Image=docker.io/jacobalberty/unifi:latest
-AutoUpdate=registry
-ContainerName=unifi
+Image={{ unifi_image }}
+AutoUpdate={{ unifi_auto_update }}
+Pull={{ unifi_pull_policy }}
+ContainerName={{ unifi_container_name }}
 
 # Network
 Network={{ podman_network }}
@@ -36,17 +41,34 @@ PublishPort={{ unifi_https_portal_port }}:{{ unifi_https_portal_port }}/tcp
 
 # AP discovery (broadcast on all interfaces)
 PublishPort={{ unifi_ap_discovery_port }}:{{ unifi_ap_discovery_port }}/udp
+{% if unifi_expose_ssdp_port %}
+
+# SSDP discovery (optional)
+PublishPort={{ unifi_ssdp_port }}:{{ unifi_ssdp_port }}/udp
+{% endif %}
+{% if unifi_expose_syslog_port %}
+
+# Device syslog ingestion (optional)
+PublishPort={{ unifi_syslog_port }}:{{ unifi_syslog_port }}/udp
+{% endif %}
 
 # Volumes
-Volume={{ unifi_config_dir }}:/unifi:Z
+Volume={{ unifi_config_dir }}:{{ unifi_container_data_path }}:Z
 
 # Environment
 Environment=TZ={{ unifi_timezone }}
 Environment=LOG_LEVEL={{ unifi_log_level }}
+{% if unifi_linuxserver_mode %}
+Environment=PUID={{ podman_user_uid }}
+Environment=PGID={{ podman_user_gid }}
+EnvironmentFile={{ unifi_mongo_env_file }}
+{% endif %}
 
 # User - UniFi runs as specific UID inside container
+{% if unifi_run_as_host_user %}
 UserNS=keep-id
 User={{ podman_user_uid }}:{{ podman_user_gid }}
+{% endif %}
 
 # Health check
 HealthCmd=curl -f -k https://localhost:{{ unifi_port_internal }}/manage || exit 1

@@ -1,6 +1,6 @@
 # handlers/main.yml
 - name: reload nginx
   service:
-    name: nginx
+    name: "{{ nginx_service_name }}"
     state: reloaded
   become: true

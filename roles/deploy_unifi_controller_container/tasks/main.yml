@@ -15,6 +15,27 @@
     podman_user_gid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][2] }}"
   when: podman_user in podman_user_info.ansible_facts.getent_passwd
 
+- name: Check if configured podman network exists
+  command: podman network exists {{ podman_network }}
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  register: unifi_podman_network_exists
+  changed_when: false
+  failed_when: false
+
+- name: Create configured podman network if missing
+  command: podman network create {{ podman_network }}
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  register: unifi_podman_network_create
+  changed_when: unifi_podman_network_create.rc == 0
+  failed_when: unifi_podman_network_create.rc != 0 and ('already exists' not in (unifi_podman_network_create.stderr | default('')))
+  when: unifi_podman_network_exists.rc != 0
+
 # Create config directory
 - name: Check if unifi config directory exists
   stat:
@@ -41,16 +62,102 @@
     mode: "0755"
   become: true
 
-# Deploy Quadlet container file
-- name: Deploy unifi Quadlet container file
+- name: Ensure MongoDB data directory exists
+  file:
+    path: "{{ unifi_mongo_data_dir }}"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+  when: unifi_linuxserver_mode | bool
+
+- name: Ensure MongoDB init directory exists
+  file:
+    path: "{{ unifi_mongo_init_dir }}"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+  when: unifi_linuxserver_mode | bool
+
+- name: Deploy MongoDB init script
   template:
-    src: unifi.container.j2
-    dest: "/home/{{ podman_user }}/.config/containers/systemd/unifi.container"
+    src: init-mongo.sh.j2
+    dest: "{{ unifi_mongo_init_script_path }}"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+  register: unifi_mongo_init_script_deployed
+  when: unifi_linuxserver_mode | bool
+
+- name: Deploy UniFi MongoDB .env file (created once)
+  template:
+    src: unifi-mongo.env.j2
+    dest: "{{ unifi_mongo_env_file }}"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0600"
+    force: false
+  become: true
+  register: unifi_mongo_env_deployed
+  when: unifi_linuxserver_mode | bool
+
+- name: Verify UniFi MongoDB .env file exists
+  stat:
+    path: "{{ unifi_mongo_env_file }}"
+  become: true
+  register: unifi_mongo_env_stat
+  when: unifi_linuxserver_mode | bool
+
+- name: Fail when UniFi MongoDB .env file is missing
+  fail:
+    msg: >-
+      Expected env file {{ unifi_mongo_env_file }} does not exist.
+      Create it manually or check permissions on {{ unifi_mongo_init_dir }}.
+  when:
+    - unifi_linuxserver_mode | bool
+    - not unifi_mongo_env_stat.stat.exists
+
+- name: Read UniFi MongoDB .env file
+  slurp:
+    src: "{{ unifi_mongo_env_file }}"
+  become: true
+  register: unifi_mongo_env_content
+  when: unifi_linuxserver_mode | bool
+
+- name: Fail when UniFi MongoDB .env file still has placeholder secrets
+  fail:
+    msg: >-
+      The file {{ unifi_mongo_env_file }} still contains placeholder credentials.
+      Update MONGO_INITDB_ROOT_PASSWORD and MONGO_PASS, then rerun.
+  when:
+    - unifi_linuxserver_mode | bool
+    - "'change_me_' in (unifi_mongo_env_content.content | b64decode)"
+
+- name: Deploy UniFi MongoDB Quadlet container file
+  template:
+    src: unifi-db.container.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/{{ unifi_mongo_service_name }}.container"
     owner: "{{ podman_user }}"
     group: "{{ podman_user }}"
     mode: "0644"
   become: true
-  register: quadlet_deployed
+  register: unifi_mongo_quadlet_deployed
+  when: unifi_linuxserver_mode | bool
+
+# Deploy Quadlet container file
+- name: Deploy unifi Quadlet container file
+  template:
+    src: unifi.container.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/{{ unifi_quadlet_name }}.container"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: unifi_quadlet_deployed
 
 # Enable lingering for podman user (allows user services to run without login)
 - name: Enable lingering for podman user
@@ -68,33 +175,226 @@
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
 
+# Validate local image exists before trying to start service.
+# This avoids opaque systemd restart loops when using localhost/* images.
+- name: Verify local UniFi image exists for podman user
+  command: podman image exists {{ unifi_image }}
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  register: unifi_local_image_check
+  changed_when: false
+  failed_when: false
+  when: unifi_image is match('^localhost/')
+
+- name: Fail when required local UniFi image is missing
+  fail:
+    msg: >-
+      Required local image {{ unifi_image }} was not found for user {{ podman_user }}.
+      Build or load/tag this image on the target host first, then re-run this role.
+      Example: podman tag <existing-image> {{ unifi_image }}
+  when:
+    - unifi_image is match('^localhost/')
+    - unifi_local_image_check.rc != 0
+
+- name: Check free space for rootless Podman storage
+  command: df -Pm {{ unifi_podman_storage_path }}
+  become: true
+  become_user: "{{ podman_user }}"
+  register: unifi_storage_df
+  changed_when: false
+
+- name: Extract free space in MB for rootless Podman storage
+  set_fact:
+    unifi_storage_free_mb: "{{ (unifi_storage_df.stdout_lines[1].split()[3] | int) }}"
+
+- name: Fail when free space is too low for UniFi image pulls
+  fail:
+    msg: >-
+      Not enough free space for Podman image pulls at {{ unifi_podman_storage_path }}.
+      Available: {{ unifi_storage_free_mb }} MB, required minimum: {{ unifi_min_free_space_mb }} MB.
+      Free space and retry. Suggested cleanup as {{ podman_user }}:
+      podman system df;
+      podman image prune -a -f;
+      podman container prune -f;
+      podman volume prune -f
+  when:
+    - unifi_storage_free_mb | int < unifi_min_free_space_mb | int
+
+- name: Ensure UniFi MongoDB service is enabled and started
+  block:
+    - name: Enable and start UniFi MongoDB service
+      systemd:
+        name: "{{ unifi_mongo_service_name }}"
+        enabled: yes
+        state: started
+        scope: user
+      become: true
+      become_user: "{{ podman_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  rescue:
+    - name: Collect UniFi MongoDB diagnostics after start failure
+      shell: |
+        echo '=== systemctl status ==='
+        systemctl --user status {{ unifi_mongo_service_name }} --no-pager -l || true
+        echo
+        echo '=== journalctl ==='
+        journalctl --user -u {{ unifi_mongo_service_name }} -n 120 --no-pager || true
+        echo
+        echo '=== podman ps -a ==='
+        podman ps -a --filter name={{ unifi_mongo_container_name }} || true
+        echo
+        echo '=== podman logs ==='
+        podman logs --tail 120 {{ unifi_mongo_container_name }} || true
+      become: true
+      become_user: "{{ podman_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+      register: unifi_mongo_start_diagnostics
+      changed_when: false
+
+    - name: Fail with UniFi MongoDB diagnostics (start path)
+      fail:
+        msg: "{{ unifi_mongo_start_diagnostics.stdout }}"
+  when: unifi_linuxserver_mode | bool
+
+- name: Restart UniFi MongoDB service (Quadlet or init changed)
+  block:
+    - name: Restart UniFi MongoDB service
+      systemd:
+        name: "{{ unifi_mongo_service_name }}"
+        state: restarted
+        scope: user
+      become: true
+      become_user: "{{ podman_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  rescue:
+    - name: Collect UniFi MongoDB diagnostics after restart failure
+      shell: |
+        echo '=== systemctl status ==='
+        systemctl --user status {{ unifi_mongo_service_name }} --no-pager -l || true
+        echo
+        echo '=== journalctl ==='
+        journalctl --user -u {{ unifi_mongo_service_name }} -n 120 --no-pager || true
+        echo
+        echo '=== podman ps -a ==='
+        podman ps -a --filter name={{ unifi_mongo_container_name }} || true
+        echo
+        echo '=== podman logs ==='
+        podman logs --tail 120 {{ unifi_mongo_container_name }} || true
+      become: true
+      become_user: "{{ podman_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+      register: unifi_mongo_restart_diagnostics
+      changed_when: false
+
+    - name: Fail with UniFi MongoDB diagnostics (restart path)
+      fail:
+        msg: "{{ unifi_mongo_restart_diagnostics.stdout }}"
+  when:
+    - unifi_linuxserver_mode | bool
+    - unifi_mongo_quadlet_deployed.changed or unifi_mongo_init_script_deployed.changed or unifi_mongo_env_deployed.changed
+
+- name: Wait for MongoDB to be ready
+  shell: >-
+    podman exec {{ unifi_mongo_container_name }} sh -lc
+    'if command -v mongosh >/dev/null 2>&1; then
+       mongosh --quiet --eval "db.runCommand({ ping: 1 }).ok";
+     else
+       mongo --quiet --eval "db.runCommand({ ping: 1 }).ok";
+     fi'
+  become: true
+  become_user: "{{ podman_user }}"
+  register: unifi_mongo_ready
+  retries: 30
+  delay: 5
+  until: unifi_mongo_ready.rc == 0 and '1' in unifi_mongo_ready.stdout
+  changed_when: false
+  when: unifi_linuxserver_mode | bool
+
 # Restart service if Quadlet changed, otherwise ensure it's enabled and started
 - name: Restart unifi service (Quadlet changed)
-  systemd:
-    name: unifi
-    state: restarted
-    scope: user
-  become: true
-  become_user: "{{ podman_user }}"
-  environment:
-    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
-  when: quadlet_deployed.changed
+  block:
+    - name: Restart unifi service
+      systemd:
+        name: "{{ unifi_service_name }}"
+        state: restarted
+        scope: user
+      become: true
+      become_user: "{{ podman_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  rescue:
+    - name: Collect unifi diagnostics after restart failure
+      shell: |
+        echo '=== systemctl status ==='
+        systemctl --user status {{ unifi_service_name }} --no-pager -l || true
+        echo
+        echo '=== journalctl ==='
+        journalctl --user -u {{ unifi_service_name }} -n 120 --no-pager || true
+        echo
+        echo '=== podman ps -a ==='
+        podman ps -a --filter name={{ unifi_container_name }} || true
+        echo
+        echo '=== podman logs {{ unifi_container_name }} ==='
+        podman logs --tail 120 {{ unifi_container_name }} || true
+      become: true
+      become_user: "{{ podman_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+      register: unifi_restart_diagnostics
+      changed_when: false
+
+    - name: Fail with unifi diagnostics (restart path)
+      fail:
+        msg: "{{ unifi_restart_diagnostics.stdout }}"
+  when: unifi_quadlet_deployed.changed
 
 - name: Ensure unifi service is enabled and started
-  systemd:
-    name: unifi
-    enabled: yes
-    state: started
-    scope: user
-  become: true
-  become_user: "{{ podman_user }}"
-  environment:
-    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
-  when: not quadlet_deployed.changed
+  block:
+    - name: Enable and start unifi service
+      systemd:
+        name: "{{ unifi_service_name }}"
+        enabled: yes
+        state: started
+        scope: user
+      become: true
+      become_user: "{{ podman_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  rescue:
+    - name: Collect unifi diagnostics after start failure
+      shell: |
+        echo '=== systemctl status ==='
+        systemctl --user status {{ unifi_service_name }} --no-pager -l || true
+        echo
+        echo '=== journalctl ==='
+        journalctl --user -u {{ unifi_service_name }} -n 120 --no-pager || true
+        echo
+        echo '=== podman ps -a ==='
+        podman ps -a --filter name={{ unifi_container_name }} || true
+        echo
+        echo '=== podman logs {{ unifi_container_name }} ==='
+        podman logs --tail 120 {{ unifi_container_name }} || true
+      become: true
+      become_user: "{{ podman_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+      register: unifi_start_diagnostics
+      changed_when: false
+
+    - name: Fail with unifi diagnostics (start path)
+      fail:
+        msg: "{{ unifi_start_diagnostics.stdout }}"
+  when: not unifi_quadlet_deployed.changed
 
 # Wait for container to be healthy
 - name: Wait for UniFi container to be healthy
-  command: podman healthcheck run unifi
+  command: podman healthcheck run {{ unifi_container_name }}
   become: true
   become_user: "{{ podman_user }}"
   register: unifi_health
@@ -108,14 +408,16 @@
   debug:
     msg: |
       UniFi Controller deployed successfully via Podman Quadlet!
-      - Quadlet: ~/.config/containers/systemd/unifi.container
-      - Service: unifi.service (auto-generated by systemd)
+      - Quadlet: ~/.config/containers/systemd/{{ unifi_quadlet_name }}.container
+      - Service: {{ unifi_service_name }}.service (auto-generated by systemd)
+      - MongoDB service (linuxserver mode): {{ unifi_mongo_service_name }}.service
       - Web UI: {{ unifi_published_server_url }}/manage
       - Auto-update: Enabled (via AutoUpdate=registry in Quadlet)
-      - Manage: systemctl --user status unifi
+      - Manage (as {{ podman_user }}): sudo -u {{ podman_user }} XDG_RUNTIME_DIR=/run/user/{{ podman_user_uid }} systemctl --user status {{ unifi_service_name }}
+      - MongoDB status (as {{ podman_user }}): sudo -u {{ podman_user }} XDG_RUNTIME_DIR=/run/user/{{ podman_user_uid }} systemctl --user status {{ unifi_mongo_service_name }}
 
       Note: First startup may take 5-10 minutes while UniFi initializes.
-      Check status: podman healthcheck run unifi
+      Health check (as {{ podman_user }}): sudo -u {{ podman_user }} XDG_RUNTIME_DIR=/run/user/{{ podman_user_uid }} podman healthcheck run {{ unifi_container_name }}
 
 # Deploy nginx reverse proxy configuration
 - name: Ensure nginx conf.d directory exists

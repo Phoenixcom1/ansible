@@ -1,0 +1,14 @@
+---
+- name: Validate supported operating system family
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family in ['Debian', 'RedHat']
+    fail_msg: "Unsupported OS family {{ ansible_os_family }}. Supported families: Debian and RedHat."
+
+- name: Set global distro and package-manager facts
+  ansible.builtin.set_fact:
+    host_os_family: "{{ ansible_os_family }}"
+    host_is_debian: "{{ ansible_os_family == 'Debian' }}"
+    host_is_redhat: "{{ ansible_os_family == 'RedHat' }}"
+    host_pkg_backend: "{{ 'apt' if ansible_os_family == 'Debian' else 'dnf' if ansible_os_family == 'RedHat' else 'unsupported' }}"
+    host_uses_dnf5: "{{ ansible_pkg_mgr == 'dnf5' }}"
