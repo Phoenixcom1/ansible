@@ -8,5 +8,5 @@ nginx_service_name: nginx
 
 # SSL include directory managed by this role.
 nginx_ssl_dir: /etc/ssl/wildcard
-nginx_ssl_dir_owner: root
-nginx_ssl_dir_group: root
+nginx_ssl_dir_owner: ansible
+nginx_ssl_dir_group: ansible
