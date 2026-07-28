@@ -49,6 +49,23 @@
     group: "{{ nginx_ssl_dir_group }}"
   become: true
 
+- name: Check whether the configured SSL certificate exists
+  stat:
+    path: "{{ ssl_cert }}"
+  register: nginx_ssl_cert_stat
+  become: true
+
+- name: Check whether the configured SSL private key exists
+  stat:
+    path: "{{ ssl_key }}"
+  register: nginx_ssl_key_stat
+  become: true
+
+- name: Report SSL certificate presence
+  debug:
+    msg: "SSL certificate check: cert={{ nginx_ssl_cert_stat.stat.exists }}, key={{ nginx_ssl_key_stat.stat.exists }}"
+  become: true
+
 - name: Ensure config directory exists
   file:
     path: /etc/nginx/conf.d

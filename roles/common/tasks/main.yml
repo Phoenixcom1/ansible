@@ -22,15 +22,33 @@
     cmd: dnf -y upgrade --refresh
   when: host_is_redhat | default(ansible_facts['os_family'] == 'RedHat')
 
+- name: Ensure Fedora DNF Python bindings are available
+  ansible.builtin.command:
+    cmd: dnf install -y python3-dnf python3-libdnf5
+  become: true
+  when: host_is_redhat | default(ansible_facts['os_family'] == 'RedHat')
+
 - name: Install Curl
   ansible.builtin.package:
     name: curl
+    state: present
+    use: "{{ 'apt' if (host_is_debian | default(ansible_facts['os_family'] == 'Debian')) else 'dnf' }}"
   become: true
 
 - name: Install avahi package for mDNS (.local) domain resolution
   ansible.builtin.package:
     name: "{{ 'avahi-daemon' if (host_is_debian | default(ansible_facts['os_family'] == 'Debian')) else 'avahi' }}"
+    state: present
+    use: "{{ 'apt' if (host_is_debian | default(ansible_facts['os_family'] == 'Debian')) else 'dnf' }}"
   become: true
+
+- name: Install nss-mdns for Fedora mDNS resolution
+  ansible.builtin.package:
+    name: nss-mdns
+    state: present
+    use: "{{ 'apt' if (host_is_debian | default(ansible_facts['os_family'] == 'Debian')) else 'dnf' }}"
+  become: true
+  when: host_is_redhat | default(ansible_facts['os_family'] == 'RedHat')
 
 - name: Ensure avahi-daemon is enabled and running
   ansible.builtin.systemd:

@@ -1,7 +1,7 @@
 ---
 - name: Install qemu-guest-agent package
-  apt:
+  ansible.builtin.package:
     name: "{{ qemu_guest_agent_package }}"
     state: present
-    update_cache: yes
+    use: "{{ 'apt' if (host_is_debian | default(ansible_facts['os_family'] == 'Debian')) else 'dnf' }}"
   become: true
