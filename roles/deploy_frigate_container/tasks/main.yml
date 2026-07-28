@@ -237,6 +237,18 @@
   ignore_errors: true
 
 # Deploy nginx reverse proxy configuration
+- name: Remove legacy Frigate nginx configs from site-enabled/site-available paths
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/nginx/sites-enabled/frigate.conf
+    - /etc/nginx/sites-enabled/frigate.kerberos.fassbender.contact.conf
+    - /etc/nginx/sites-available/frigate.conf
+    - /etc/nginx/sites-available/frigate.kerberos.fassbender.contact.conf
+  become: true
+  ignore_errors: true
+
 - name: Ensure nginx conf.d directory exists
   file:
     path: /etc/nginx/conf.d
