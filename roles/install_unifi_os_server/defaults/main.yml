@@ -1,0 +1,50 @@
+---
+# UniFi OS Server native installation defaults
+
+# Paste the direct Linux installer URL from UI Releases/Download page.
+unifi_os_server_installer_url: ""
+
+# Package prerequisites from the official Linux instructions.
+unifi_os_server_required_packages:
+  - podman
+  - slirp4netns
+
+# Downloader to use for installer retrieval: curl or wget.
+unifi_os_server_downloader: "curl"
+
+# Where the installer binary is stored on the target.
+unifi_os_server_download_dir: "/opt/installers"
+
+# Preflight guards for large installer downloads.
+# The UniFi OS Server Linux x64 installer is typically ~800+ MB.
+unifi_os_server_min_free_space_mb: 2048
+unifi_os_server_min_installer_size_mb: 700
+
+# Preflight guards aligned with installer checks.
+unifi_os_server_space_requirements:
+  - path: "/home"
+    min_gb: 15
+  - path: "/tmp"
+    min_gb: 2
+  - path: "/var/tmp"
+    min_gb: 2
+
+# Installation behavior.
+unifi_os_server_reinstall: false
+unifi_os_server_force_download: false
+unifi_os_server_cleanup_installer: false
+unifi_os_server_installer_args: ""
+unifi_os_server_installer_auto_confirm: true
+unifi_os_server_installer_timeout_seconds: 1800
+unifi_os_server_show_installer_output: true
+unifi_os_server_installer_output_tail_lines: 200
+
+# Service management.
+unifi_os_server_manage_service: true
+unifi_os_server_enable_on_boot: true
+unifi_os_server_state: "started"
+
+# Migration safeguard from official guidance:
+# close/stop UniFi Network Server before installing UniFi OS Server.
+unifi_os_server_stop_legacy_network_server: true
+unifi_os_server_legacy_service_name: "unifi"

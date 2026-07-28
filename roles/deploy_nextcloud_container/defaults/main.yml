@@ -1,0 +1,46 @@
+---
+# Nextcloud AIO service deployment configuration
+
+# Podman user
+podman_user: "{{ podman_username }}"
+
+# Repository path
+nextcloud_repo_path: "{{ podman_service_dir }}/nextcloud"
+nextcloud_aio_config_dir: "{{ nextcloud_repo_path }}/aio-config"
+nextcloud_aio_datadir: "{{ nextcloud_repo_path }}/data"
+
+# Nextcloud application settings
+nextcloud_domain: "cloud.kerberos.fassbender.contact"
+nextcloud_upload_max_size: "16G"
+
+# AIO mastercontainer settings
+nextcloud_aio_image: "ghcr.io/nextcloud-releases/all-in-one:latest"
+nextcloud_aio_container: "nextcloud-aio-mastercontainer"
+
+# AIO interface (self-signed, access via IP)
+nextcloud_aio_interface_port: 8081
+nextcloud_aio_interface_bind_ip: "127.0.0.1"
+
+# Apache container endpoint used behind your external nginx reverse proxy
+nextcloud_aio_apache_port: 11000
+nextcloud_aio_apache_bind_ip: "127.0.0.1"
+
+# Optional AIO customizations (official env vars)
+nextcloud_aio_skip_domain_validation: false
+nextcloud_aio_log_level: "warn"
+nextcloud_aio_disable_backup_section: true
+nextcloud_aio_docker_api_version: "1.41"
+nextcloud_aio_network_mode: "bridge"
+nextcloud_aio_security_label_disable: true
+nextcloud_aio_dns_servers:
+  - "192.168.1.118"
+nextcloud_aio_dns_search: null
+nextcloud_aio_additional_env: {}
+
+# Talk (built-in TURN port if Talk container is enabled via AIO UI)
+nextcloud_aio_talk_port: 3478
+
+# Talk HPB (external dedicated server)
+nextcloud_enable_talk_hpb: false
+nextcloud_talk_hpb_url: "https://talk-backend.kerberos.fassbender.contact"
+nextcloud_talk_hpb_secret: "CHANGE_ME"

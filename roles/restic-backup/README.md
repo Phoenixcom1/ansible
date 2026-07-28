@@ -194,6 +194,27 @@ sudo restic -r /mnt/backup/restic-podman restore <snapshot-id> \
   --include /opt/podman/homepage
 ```
 
+**Restore Vaultwarden data (SELinux-safe):**
+
+Stop the Vaultwarden service first, then restore directly into the data directory using the xattr filter for SELinux:
+
+```bash
+sudo systemctl stop podman.service
+
+sudo restic -r /mnt/backup/restic-podman restore 4dcf0086 \
+  --target /opt/podman/vaultwarden/data \
+  --include /opt/podman/vaultwarden/data \
+  --exclude-xattr 'security.*'
+```
+
+If the service is managed as a user unit instead of a system service, use the user-scoped equivalent before running the restore:
+
+```bash
+sudo -u ansible systemctl --user stop vaultwarden.service
+```
+
+Permissions have been fine in this setup, so no additional ownership change is normally required.
+
 **Check backup integrity:**
 
 ```bash

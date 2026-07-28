@@ -9,21 +9,46 @@
   become: true
   when: ansible_user == 'ansible'
 
-- name: Update all packages to their latest version
+- name: Update all packages to their latest version (Debian)
   become: true
-  ansible.builtin.package:
-    name: "*"
-    state: latest
+  ansible.builtin.apt:
+    update_cache: yes
+    upgrade: dist
+  when: host_is_debian | default(ansible_facts['os_family'] == 'Debian')
+
+- name: Update all packages to their latest version (Fedora)
+  become: true
+  ansible.builtin.command:
+    cmd: dnf -y upgrade --refresh
+  when: host_is_redhat | default(ansible_facts['os_family'] == 'RedHat')
+
+- name: Ensure Fedora DNF Python bindings are available
+  ansible.builtin.command:
+    cmd: dnf install -y python3-dnf python3-libdnf5
+  become: true
+  when: host_is_redhat | default(ansible_facts['os_family'] == 'RedHat')
 
 - name: Install Curl
   ansible.builtin.package:
     name: curl
+    state: present
+    use: "{{ 'apt' if (host_is_debian | default(ansible_facts['os_family'] == 'Debian')) else 'dnf' }}"
   become: true
 
 - name: Install avahi package for mDNS (.local) domain resolution
   ansible.builtin.package:
-    name: "{{ 'avahi-daemon' if ansible_facts['os_family'] == 'Debian' else 'avahi' }}"
+    name: "{{ 'avahi-daemon' if (host_is_debian | default(ansible_facts['os_family'] == 'Debian')) else 'avahi' }}"
+    state: present
+    use: "{{ 'apt' if (host_is_debian | default(ansible_facts['os_family'] == 'Debian')) else 'dnf' }}"
   become: true
+
+- name: Install nss-mdns for Fedora mDNS resolution
+  ansible.builtin.package:
+    name: nss-mdns
+    state: present
+    use: "{{ 'apt' if (host_is_debian | default(ansible_facts['os_family'] == 'Debian')) else 'dnf' }}"
+  become: true
+  when: host_is_redhat | default(ansible_facts['os_family'] == 'RedHat')
 
 - name: Ensure avahi-daemon is enabled and running
   ansible.builtin.systemd:
@@ -31,6 +56,18 @@
     enabled: yes
     state: started
   become: true
+
+# spin-off project of FreeRDP
+- name: Install winpr (Ubuntu)
+  ansible.builtin.apt:
+    name: winpr-utils
+  become: true
+  when: host_is_debian | default(ansible_facts['os_family'] == 'Debian')
+
+- name: Skip winpr install on Fedora
+  ansible.builtin.debug:
+    msg: "Skipping winpr install on Fedora"
+  when: host_is_redhat | default(ansible_facts['os_family'] == 'RedHat')
 
 - name: Add user to kvm group
   become: true

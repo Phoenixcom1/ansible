@@ -1,0 +1,8 @@
+---
+# Handlers for Paperless-AI deployment
+
+- name: Reload nginx
+  systemd:
+    name: nginx
+    state: reloaded
+  become: true

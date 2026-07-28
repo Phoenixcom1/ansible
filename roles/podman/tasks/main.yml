@@ -4,6 +4,7 @@
     name:
       - podman
     state: present
+    use: "{{ 'apt' if (host_is_debian | default(ansible_facts['os_family'] == 'Debian')) else 'dnf' }}"
   become: true
 
 - name: Install podman compose plugin
@@ -11,6 +12,7 @@
     name:
       - podman-compose
     state: present
+    use: "{{ 'apt' if (host_is_debian | default(ansible_facts['os_family'] == 'Debian')) else 'dnf' }}"
   become: true
 
 - name: Configure user namespaces and subuid/subgid mappings (sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $USER)

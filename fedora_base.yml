@@ -11,19 +11,20 @@
   #     confirm: true
 
   roles:
+    - platform_facts
     # NOTE: Roles below may require Fedora-specific adjustments (dnf/package module compatibility)
-    - common
+    #- common
     #- local-user
     #- qemu-guest-agent
     #- podman
     #- podman-user
     #- podman-vlan-setup
-    #- nginx_reverse_proxy
+    - nginx_reverse_proxy
     #- podman-compose-deploy
     #- deploy_homepage_container
     #- deploy_jellyfin_container
     #- deploy_vaultwarden_container
-    #- deploy_unifi_controller_container
+    - deploy_unifi_controller_container
     #- deploy_paperless_container
     #- deploy_frigate_container
     #- deploy_immich_container

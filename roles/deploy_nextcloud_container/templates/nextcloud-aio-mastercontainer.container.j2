@@ -1,0 +1,67 @@
+# nextcloud-aio-mastercontainer.container
+# Managed by Ansible - Podman Quadlet for Nextcloud AIO mastercontainer
+# https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html
+#
+# NOTE: Nextcloud AIO is officially Docker-first. This setup uses Podman Docker API compatibility.
+
+[Unit]
+Description=Nextcloud AIO Mastercontainer
+Documentation=https://github.com/nextcloud/all-in-one
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image={{ nextcloud_aio_image }}
+ContainerName={{ nextcloud_aio_container }}
+AutoUpdate=registry
+
+# Required runtime arguments from official AIO run command
+PodmanArgs=--init --sig-proxy=false
+
+# AIO interface (self-signed certificate, open by IP)
+PublishPort={{ nextcloud_aio_interface_bind_ip }}:{{ nextcloud_aio_interface_port }}:8080/tcp
+
+# Persistent config and Docker API socket
+Volume=nextcloud_aio_mastercontainer:/mnt/docker-aio-config
+Volume={{ nextcloud_podman_socket }}:/var/run/docker.sock:ro
+Network={{ nextcloud_aio_network_mode }}
+{% for dns_server in nextcloud_aio_dns_servers %}
+DNS={{ dns_server }}
+{% endfor %}
+{% if nextcloud_aio_dns_search is not none %}
+DNSSearch={{ nextcloud_aio_dns_search }}
+{% endif %}
+{% if nextcloud_aio_security_label_disable | bool %}
+SecurityLabelDisable=true
+{% endif %}
+
+# Official AIO customizations for reverse-proxy mode
+Environment=APACHE_PORT={{ nextcloud_aio_apache_port }}
+Environment=APACHE_IP_BINDING={{ nextcloud_aio_apache_bind_ip }}
+Environment=NEXTCLOUD_DATADIR={{ nextcloud_aio_datadir }}
+Environment=NEXTCLOUD_UPLOAD_LIMIT={{ nextcloud_upload_max_size }}
+Environment=SKIP_DOMAIN_VALIDATION={{ nextcloud_aio_skip_domain_validation | lower }}
+Environment=AIO_LOG_LEVEL={{ nextcloud_aio_log_level }}
+Environment=AIO_DISABLE_BACKUP_SECTION={{ nextcloud_aio_disable_backup_section | lower }}
+Environment=DOCKER_API_VERSION={{ nextcloud_aio_docker_api_version }}
+Environment=WATCHTOWER_DOCKER_SOCKET_PATH={{ nextcloud_podman_socket }}
+Environment=TALK_PORT={{ nextcloud_aio_talk_port }}
+
+{% for key, value in nextcloud_aio_additional_env.items() %}
+Environment={{ key }}={{ value }}
+{% endfor %}
+
+# Health check
+HealthCmd=curl -k -fsS --max-time 5 https://localhost:8080/
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=10
+HealthStartPeriod=60s
+
+[Service]
+Restart=always
+TimeoutStartSec=900
+TimeoutStopSec=120
+
+[Install]
+WantedBy=default.target

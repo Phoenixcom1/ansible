@@ -17,8 +17,8 @@
 [Unit]
 Description=Frigate NVR Container
 Documentation=https://docs.frigate.video/
-# default.target to wait until the user session is fully initialized to have propper user namespaces
-After=network-online.target default.targe
+# default.target to wait until the user session is fully initialized to have proper user namespaces
+After=network-online.target default.target
 Wants=network-online.target
 
 [Container]

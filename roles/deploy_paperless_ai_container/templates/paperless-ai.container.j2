@@ -1,0 +1,60 @@
+# Paperless-AI Container
+#
+# This file is managed by Ansible - DO NOT EDIT MANUALLY
+# Role: deploy_paperless_ai_container
+# Managed by Ansible - Podman Quadlet for Paperless-AI
+# https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html
+
+[Unit]
+Description=Paperless-AI Document Intelligence Assistant
+Documentation=https://github.com/clusterzx/paperless-ai
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image={{ paperless_ai_image }}:{{ paperless_ai_version }}
+ContainerName={{ paperless_ai_container }}
+AutoUpdate=registry
+
+# Network (shared with paperless)
+Network={{ paperless_ai_network }}
+PublishPort=127.0.0.1:{{ paperless_ai_port }}:{{ paperless_ai_internal_port }}/tcp
+
+# Volumes
+Volume={{ paperless_ai_data_dir }}:/app/data:Z
+
+# Environment - User mapping
+Environment=PUID={{ paperless_ai_uid }}
+Environment=PGID={{ paperless_ai_gid }}
+
+# Environment - Application settings
+Environment=PAPERLESS_AI_PORT={{ paperless_ai_internal_port }}
+Environment=RAG_SERVICE_URL={{ paperless_ai_rag_service_url }}
+Environment=RAG_SERVICE_ENABLED={{ paperless_ai_rag_service_enabled | lower }}
+Environment=PAPERLESS_URL={{ paperless_ai_paperless_url }}
+
+# Security - Drop all capabilities
+{% if paperless_ai_drop_capabilities %}
+DropCapability=ALL
+{% endif %}
+
+# Security - Prevent privilege escalation
+{% if paperless_ai_no_new_privileges %}
+SecurityLabelDisable=false
+NoNewPrivileges=true
+{% endif %}
+
+# Health check
+HealthCmd=curl -f http://localhost:{{ paperless_ai_internal_port }}/ || exit 1
+HealthInterval=30s
+HealthTimeout=3s
+HealthRetries=3
+HealthStartPeriod=30s
+
+[Service]
+Restart=unless-stopped
+TimeoutStartSec=300
+TimeoutStopSec=70
+
+[Install]
+WantedBy=default.target

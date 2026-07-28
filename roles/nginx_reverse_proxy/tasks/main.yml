@@ -1,17 +1,69 @@
 ---
-- name: Ensure nginx is installed
-  ansible.builtin.package:
-    name: nginx
+- name: Ensure distribution is supported
+  assert:
+    that:
+      - host_os_family is defined
+      - host_pkg_backend is defined
+      - host_os_family in ['Debian', 'RedHat']
+    fail_msg: "This role supports Ubuntu/Debian and Fedora/RHEL-family hosts only."
+  become: true
+
+- name: Ensure nginx is installed on Debian/Ubuntu
+  apt:
+    name: "{{ nginx_package_name }}"
     state: present
+    update_cache: true
+  when: host_is_debian
+  become: true
+
+- name: Check whether nginx is installed on dnf5 hosts
+  command: "rpm -q {{ nginx_package_name }}"
+  register: nginx_rpm_query
+  changed_when: false
+  failed_when: false
+  when: host_uses_dnf5
+  become: true
+
+- name: Ensure nginx is installed on dnf5 hosts
+  command: "dnf -y install {{ nginx_package_name }}"
+  when:
+    - host_uses_dnf5
+    - nginx_rpm_query.rc != 0
+  become: true
+
+- name: Ensure nginx is installed on RedHat family (non-dnf5)
+  dnf:
+    name: "{{ nginx_package_name }}"
+    state: present
+  when:
+    - host_is_redhat
+    - not host_uses_dnf5
   become: true
 
 - name: Ensure SSL certificate directory exists
   file:
-    path: /etc/ssl/wildcard
+    path: "{{ nginx_ssl_dir }}"
     state: directory
     mode: "0755"
-    owner: ansible
-    group: ansible
+    owner: "{{ nginx_ssl_dir_owner }}"
+    group: "{{ nginx_ssl_dir_group }}"
+  become: true
+
+- name: Check whether the configured SSL certificate exists
+  stat:
+    path: "{{ ssl_cert }}"
+  register: nginx_ssl_cert_stat
+  become: true
+
+- name: Check whether the configured SSL private key exists
+  stat:
+    path: "{{ ssl_key }}"
+  register: nginx_ssl_key_stat
+  become: true
+
+- name: Report SSL certificate presence
+  debug:
+    msg: "SSL certificate check: cert={{ nginx_ssl_cert_stat.stat.exists }}, key={{ nginx_ssl_key_stat.stat.exists }}"
   become: true
 
 - name: Ensure config directory exists
@@ -75,8 +127,8 @@
   when: nginx_test.rc is defined and nginx_test.rc != 0 and "cannot load certificate" not in (nginx_test.stderr | default(''))
 
 - name: Ensure nginx is enabled and running
-  ansible.builtin.systemd:
-    name: nginx
+  systemd:
+    name: "{{ nginx_service_name }}"
     enabled: yes
     state: started
   become: true

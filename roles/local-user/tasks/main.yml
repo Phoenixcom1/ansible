@@ -1,6 +1,8 @@
 - name: Install mkpasswd
   ansible.builtin.package:
     name: whois
+    state: present
+    use: "{{ 'apt' if (host_is_debian | default(ansible_facts['os_family'] == 'Debian')) else 'dnf' }}"
   become: true
 
 - name: Check if local user '{{ local_username}}' already exists
@@ -15,13 +17,13 @@
     cmd: 'echo "1234" | mkpasswd --method=SHA-512 --stdin'
   register: generated_hash
 
-- name: Ensure local user '{{ local_username}}' exists, has password, and is in sudo
+- name: Ensure local user '{{ local_username}}' exists, has password, and is in sudo/wheel
   when: user_check_result.rc == 2
   ansible.builtin.user:
     name: "{{ local_username }}"
     password: "{{ generated_hash.stdout }}"
     state: present
-    groups: sudo
+    groups: "{{ 'sudo' if (host_is_debian | default(ansible_facts['os_family'] == 'Debian')) else 'wheel' }}"
     append: yes
     shell: /bin/bash
     update_password: "on_create"

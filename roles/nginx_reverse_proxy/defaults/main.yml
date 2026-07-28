@@ -1,3 +1,12 @@
 # Network binding (optional: specify IP to bind nginx to VLAN 100)
 # Leave empty to bind to all interfaces, or set to VLAN IP like "192.168.100.2"
 nginx_listen_ip: ""
+
+# Package/service names are configurable for distro portability.
+nginx_package_name: nginx
+nginx_service_name: nginx
+
+# SSL include directory managed by this role.
+nginx_ssl_dir: /etc/ssl/wildcard
+nginx_ssl_dir_owner: ansible
+nginx_ssl_dir_group: ansible

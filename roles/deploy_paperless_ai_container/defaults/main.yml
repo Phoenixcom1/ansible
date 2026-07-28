@@ -1,0 +1,39 @@
+---
+# Paperless-AI service deployment configuration
+
+# Podman user
+podman_user: "{{ podman_username }}"
+
+# Repository path (for env files and config)
+paperless_ai_repo_path: "{{ podman_service_dir }}/paperless-ai"
+
+# Volume and config paths
+paperless_ai_data_dir: "{{ paperless_ai_repo_path }}/data"
+
+# Network configuration (shared with paperless)
+paperless_ai_network: systemd-paperless_net
+paperless_ai_network_driver: bridge
+
+# Paperless connection URL
+paperless_ai_paperless_url: "http://paperless-webserver:8000"
+
+# Paperless-AI application settings
+paperless_ai_domain: "paperless-ai.kerberos.fassbender.contact"
+paperless_ai_port: 5555
+paperless_ai_internal_port: 3000
+
+# Container name
+paperless_ai_container: paperless-ai
+
+# Container image
+paperless_ai_image: "docker.io/clusterzx/paperless-ai"
+paperless_ai_version: "latest"
+
+# Environment variables
+# PUID/PGID will be set dynamically to match podman user
+paperless_ai_rag_service_url: "http://localhost:8000"
+paperless_ai_rag_service_enabled: true
+
+# Security settings
+paperless_ai_drop_capabilities: true
+paperless_ai_no_new_privileges: true

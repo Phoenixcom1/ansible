@@ -11,6 +11,7 @@
   #     confirm: true
 
   roles:
+    - platform_facts
     #- common
     #- local-user
     #- qemu-guest-agent
@@ -22,14 +23,16 @@
     #- deploy_homepage_container
     #- deploy_jellyfin_container
     #- deploy_vaultwarden_container
-    #- deploy_unifi_controller_container
+    - deploy_unifi_controller_container
     #- deploy_paperless_container
     #- deploy_frigate_container
     #- deploy_immich_container
+    #- deploy_nextcloud_container
     #- restic-backup
     #- deploy_whisper_container
     #- deploy_piper_container
     #- deploy_openwakeword_container
     #- deploy_openwebui_container
-    - deploy_adguardhome_container
+    #- deploy_adguardhome_container
     #- deploy_adguardhome_sync_container
+    #- deploy_paperless_ai_container

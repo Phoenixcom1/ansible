@@ -11,17 +11,20 @@ restic_password_file: "/root/.restic-password"
 # Backup schedule (systemd timer format)
 restic_backup_time: "*-*-* 02:00:00" # Daily at 2 AM
 
+# Set to true to activate the timer and begin scheduled backups.
+restic_enable_timer: false
+
 # Services to backup (each service has its own backup paths)
 restic_backup_services:
   homepage:
-    enabled: true
+    enabled: false
     paths:
       - "{{ podman_service_dir }}/homepage"
     excludes:
       - "*.log"
 
   unifi:
-    enabled: true
+    enabled: false
     # Strategy: Backup only UniFi's built-in autobackup files
     # UniFi creates .unf backup files automatically, no need for live DB backup
     paths:
@@ -30,7 +33,7 @@ restic_backup_services:
       - "*.log"
 
   paperless:
-    enabled: true
+    enabled: false
     paths:
       # Primary backup: export (created by document_exporter)
       - "{{ podman_service_dir }}/paperless/export"
@@ -50,7 +53,7 @@ restic_backup_services:
       - "*/thumbnails/*" # Can be regenerated
 
   vaultwarden:
-    enabled: true
+    enabled: false
     # Strategy: Stop container before backup (passwords are critical)
     stop_before_backup: true
     compose_file: "{{ podman_service_dir }}/vaultwarden/compose_vaultwarden.yml"
@@ -62,7 +65,7 @@ restic_backup_services:
       - "*/icon_cache/*" # Website icons - can be re-downloaded
 
   jellyfin:
-    enabled: true
+    enabled: false
     # Strategy: Stop container before backup (SQLite database)
     stop_before_backup: true
     compose_file: "{{ podman_service_dir }}/jellyfin/compose_jellyfin.yml"
@@ -76,7 +79,7 @@ restic_backup_services:
       - "*.log"
 
   frigate:
-    enabled: true
+    enabled: false
     # Strategy: Stop container before backup (SQLite database)
     stop_before_backup: true
     compose_file: "{{ podman_service_dir }}/frigate/compose_frigate.yml"
@@ -92,7 +95,7 @@ restic_backup_services:
       - "*.log"
 
   immich:
-    enabled: true
+    enabled: false
     # Strategy: Stop containers before backup (PostgreSQL database + uploaded photos)
     stop_before_backup: true
     compose_file: "{{ podman_service_dir }}/immich/compose_immich.yml"

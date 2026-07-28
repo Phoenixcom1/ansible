@@ -2,18 +2,42 @@
 # Restic backup setup for Podman containers
 
 # Install restic
-- name: Install restic
+- name: Install restic on Debian/Ubuntu
   apt:
     name: restic
     state: present
     update_cache: yes
   become: true
+  when: host_is_debian | default(ansible_facts['os_family'] == 'Debian')
+
+- name: Install restic on Fedora/RHEL
+  ansible.builtin.command:
+    cmd: dnf install -y restic
+  become: true
+  when: host_is_redhat | default(ansible_facts['os_family'] == 'RedHat')
 
 # Mount NAS if enabled
-- name: Install CIFS utilities for NAS mount
+- name: Install CIFS utilities for NAS mount on Debian/Ubuntu
   apt:
     name: cifs-utils
     state: present
+  become: true
+  when:
+    - restic_nas_enabled
+    - host_is_debian | default(ansible_facts['os_family'] == 'Debian')
+
+- name: Install CIFS utilities for NAS mount on Fedora/RHEL
+  ansible.builtin.command:
+    cmd: dnf install -y cifs-utils
+  become: true
+  when:
+    - restic_nas_enabled
+    - host_is_redhat | default(ansible_facts['os_family'] == 'RedHat')
+
+- name: Check whether the NAS credentials file exists
+  stat:
+    path: "{{ restic_nas_credentials }}"
+  register: restic_nas_creds_stat
   become: true
   when: restic_nas_enabled
 
@@ -25,7 +49,9 @@
     group: root
     mode: "0700"
   become: true
-  when: restic_nas_enabled
+  when:
+    - restic_nas_enabled
+    - restic_nas_creds_stat.stat.exists | default(false)
 
 - name: Check if .smb_restic_creds exists on controller
   stat:
@@ -66,14 +92,25 @@
     dump: 0
     passno: 0
   become: true
-  when: restic_nas_enabled
+  when:
+    - restic_nas_enabled
+    - restic_nas_creds_stat.stat.exists | default(false)
 
 - name: Wait for NAS mount to be available
   wait_for:
     path: "{{ restic_nas_mount_point }}"
     state: present
     timeout: 30
-  when: restic_nas_enabled
+  when:
+    - restic_nas_enabled
+    - restic_nas_creds_stat.stat.exists | default(false)
+
+- name: Report that NAS mount is skipped because credentials are missing
+  debug:
+    msg: "Skipping NAS mount because credentials file {{ restic_nas_credentials }} is not present yet."
+  when:
+    - restic_nas_enabled
+    - not (restic_nas_creds_stat.stat.exists | default(false))
 
 # Setup restic password
 - name: Check if restic password file exists
@@ -179,6 +216,15 @@
     enabled: yes
     state: started
   become: true
+  when: restic_enable_timer | bool
+
+- name: Disable restic backup timer when not enabled
+  systemd:
+    name: restic-backup.timer
+    enabled: false
+    state: stopped
+  become: true
+  when: not (restic_enable_timer | bool)
 
 # Create log file
 - name: Create restic backup log file
@@ -198,6 +244,7 @@
   changed_when: false
   failed_when: false
   become: true
+  when: restic_enable_timer | bool
 
 - name: Display backup setup summary
   debug:

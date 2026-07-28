@@ -1,6 +1,6 @@
 # handlers/main.yml
 - name: reload nginx
-  ansible.builtin.systemd:
-    name: nginx
+  service:
+    name: "{{ nginx_service_name }}"
     state: reloaded
   become: true

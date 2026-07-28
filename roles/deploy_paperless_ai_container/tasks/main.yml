@@ -1,0 +1,120 @@
+---
+# Paperless-AI service deployment using Podman Quadlets
+
+# Discover podman user's UID and GID
+- name: Get podman user info
+  getent:
+    database: passwd
+    key: "{{ podman_user }}"
+  register: podman_user_info
+  changed_when: false
+
+- name: Extract podman user UID and GID
+  set_fact:
+    paperless_ai_uid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][1] }}"
+    paperless_ai_gid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][2] }}"
+  when: podman_user in podman_user_info.ansible_facts.getent_passwd
+
+- name: Display discovered podman user UID and GID
+  debug:
+    msg: "Podman user '{{ podman_user }}' has UID={{ paperless_ai_uid }} GID={{ paperless_ai_gid }}"
+
+# Create data directory
+- name: Check if paperless-ai data directory exists
+  stat:
+    path: "{{ paperless_ai_data_dir }}"
+  register: paperless_ai_data_stat
+
+- name: Create paperless-ai data directory if missing
+  file:
+    path: "{{ paperless_ai_data_dir }}"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+  when: not paperless_ai_data_stat.stat.exists
+
+# Note: Using systemd-paperless_net (created by deploy_paperless_container role)
+# The network is automatically created by paperless Quadlet .network file
+
+# Create Quadlet directory (Podman systemd units)
+- name: Create Quadlet directory for podman user
+  file:
+    path: "/home/{{ podman_user }}/.config/containers/systemd"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+
+# Deploy Quadlet container file
+- name: Deploy paperless-ai Quadlet container file
+  template:
+    src: paperless-ai.container.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/paperless-ai.container"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: quadlet_deployed
+
+# Enable lingering for podman user (allows user services to run without login)
+- name: Enable lingering for podman user
+  command: loginctl enable-linger {{ podman_user }}
+  become: true
+  changed_when: false
+
+# Reload systemd daemon to pick up Quadlet changes
+- name: Reload systemd user daemon (Quadlet generation)
+  systemd:
+    daemon_reload: yes
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ paperless_ai_uid }}"
+
+# Enable and start the service
+- name: Enable and start paperless-ai service
+  systemd:
+    name: paperless-ai.service
+    enabled: yes
+    state: started
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ paperless_ai_uid }}"
+  when: quadlet_deployed.changed
+
+# Restart service if config changed
+- name: Restart paperless-ai service if config changed
+  systemd:
+    name: paperless-ai.service
+    state: restarted
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ paperless_ai_uid }}"
+  when: quadlet_deployed.changed
+
+# Deploy nginx reverse proxy configuration
+- name: Deploy nginx reverse proxy configuration for paperless-ai
+  template:
+    src: paperless-ai.conf.j2
+    dest: "/etc/nginx/sites-available/{{ paperless_ai_domain }}.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: Reload nginx
+
+- name: Enable nginx site for paperless-ai
+  file:
+    src: "/etc/nginx/sites-available/{{ paperless_ai_domain }}.conf"
+    dest: "/etc/nginx/sites-enabled/{{ paperless_ai_domain }}.conf"
+    state: link
+  become: true
+  notify: Reload nginx

@@ -1,14 +1,14 @@
 #!/bin/bash
-# This script bootstraps an Ansible control node on a fresh Linux system (Ubuntu/Fedora compatible) based on an 'ansible' user, having sudo and ssh access.
+# This script bootstraps an Ansible control node on a fresh Linux system based on an 'ansbible' user, having sudo and ssh access.
 
 SSH_PUBLIC_KEYS=(
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBpiHVEMPB9KT0nzBBV8aMHeIcq0siEwdwZxstnfiNLd enno-fassbender@web.de"
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOmUS65IKukjmAtEFAXhRnVD/JceznOHQCTPpUZJWkFE root@Kerberos.localdomain"
 )
 
-PKG_CMD=""
 PKG_UPDATE_CMD=""
 PKG_INSTALL_CMD=""
+SSHD_SERVICE=""
 ANSIBLE_HOME="/home/ansible"
 ANSIBLE_SSH_DIR="$ANSIBLE_HOME/.ssh"
 AUTHORIZED_KEYS_FILE="$ANSIBLE_SSH_DIR/authorized_keys"
@@ -16,7 +16,33 @@ SUDOERS_CONFIG_LINE="ansible ALL=(ALL) NOPASSWD:ALL"
 SUDOERS_FILE="/etc/sudoers.d/90-ansible-nopasswd"
 SUDO_GROUP="sudo"
 
-# Check if running as root
+if [ -r /etc/os-release ]; then
+  . /etc/os-release
+else
+  echo "Unable to detect operating system. /etc/os-release is missing."
+  exit 1
+fi
+
+case "$ID" in
+  ubuntu|debian)
+    PKG_UPDATE_CMD="apt-get update"
+    PKG_INSTALL_CMD="apt-get install -y"
+    SSHD_SERVICE="ssh"
+    SUDO_GROUP="sudo"
+    ;;
+  fedora)
+    PKG_UPDATE_CMD="dnf makecache"
+    PKG_INSTALL_CMD="dnf install -y"
+    SSHD_SERVICE="sshd"
+    SUDO_GROUP="wheel"
+    ;;
+  *)
+    echo "Unsupported operating system: ${ID:-unknown}. This script supports Ubuntu/Debian and Fedora."
+    exit 1
+    ;;
+esac
+
+#Check if running as root
 if [ "$EUID" -ne 0 ]; then
   echo "Please run as root"
   exit 1
@@ -68,8 +94,8 @@ if [ $? -ne 0 ]; then
 fi
 
 #install openssh-server
-echo "Installing openssh-server..."
-$PKG_INSTALL_CMD openssh-server
+echo "Installing openssh-server and sudo..."
+$PKG_INSTALL_CMD openssh-server sudo
 if [ $? -ne 0 ]; then
   echo "Failed to install openssh-server. Exiting."
   exit 1
@@ -78,8 +104,8 @@ echo "OpenSSH Server installation completed."
 
 # --- Step 2: Persistently enable sshd.service ---
 echo ""
-echo "--- Enabling $SSH_SERVICE.service to start on boot---"
-systemctl enable --now "$SSH_SERVICE"
+echo "--- Enabling sshd.service to start on boot---"
+systemctl enable --now "$SSHD_SERVICE"
 if [ $? -ne 0 ]; then
   echo "Failed to enable/start $SSH_SERVICE.service. Exiting."
   exit 1
@@ -115,7 +141,7 @@ fi
 # --- Step 4: Add 'ansible' user to sudo group ---
 echo ""
 echo "---Adding 'ansible' user to sudo group---"
-usermod -aG $SUDO_GROUP ansible
+usermod -aG "$SUDO_GROUP" ansible
 if [ $? -ne 0 ]; then
   echo "Failed to add 'ansible' user to sudo group. Exiting."
   exit 1

@@ -1,0 +1,23 @@
+# {{ unifi_os_mongo_quadlet_name }}.container
+# Managed by Ansible - Podman Quadlet for UniFi OS Server MongoDB
+
+[Unit]
+Description=MongoDB for UniFi OS Server
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image={{ unifi_os_mongo_image }}
+AutoUpdate={{ unifi_os_mongo_auto_update }}
+Pull={{ unifi_os_mongo_pull_policy }}
+ContainerName={{ unifi_os_mongo_container_name }}
+
+Network={{ podman_network }}
+Volume={{ unifi_os_mongo_data_dir }}:/data/db:Z
+
+[Service]
+Restart=always
+TimeoutStopSec=70
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,72 @@
+# {{ unifi_os_quadlet_name }}.container
+# Managed by Ansible - Podman Quadlet for UniFi OS Server
+# Reference: https://www.unihosted.com/blog/running-unifi-os-server-in-docker
+
+[Unit]
+Description=UniFi OS Server
+Documentation=https://help.ui.com/
+Wants=network-online.target {{ unifi_os_mongo_service_name }}.service
+After=network-online.target {{ unifi_os_mongo_service_name }}.service
+
+[Container]
+Image={{ unifi_os_image }}
+AutoUpdate={{ unifi_os_auto_update }}
+Pull={{ unifi_os_pull_policy }}
+ContainerName={{ unifi_os_container_name }}
+
+Network={{ podman_network }}
+AddCapability=NET_RAW
+AddCapability=NET_ADMIN
+StopSignal=SIGRTMIN+3
+
+# Keep cgroup namespace behavior from reference compose.
+# Podman already provides host.containers.internal and does not support Docker's host-gateway token.
+PodmanArgs=--cgroupns=host
+
+# UniFi OS Server managed ports
+PublishPort={{ unifi_os_inform_port }}:{{ unifi_os_inform_port }}/tcp
+PublishPort={{ unifi_os_controller_api_port }}:{{ unifi_os_controller_api_port }}/tcp
+PublishPort={{ unifi_os_secure_portal_port }}:{{ unifi_os_secure_portal_port }}/tcp
+PublishPort={{ unifi_os_hotspot_http_port_start }}-{{ unifi_os_hotspot_http_port_end }}:{{ unifi_os_hotspot_http_port_start }}-{{ unifi_os_hotspot_http_port_end }}/tcp
+PublishPort={{ unifi_os_discovery_port }}:{{ unifi_os_discovery_port }}/udp
+PublishPort={{ unifi_os_stun_port }}:{{ unifi_os_stun_port }}/udp
+PublishPort={{ unifi_os_syslog_port }}:{{ unifi_os_syslog_port }}/udp
+PublishPort={{ unifi_os_speedtest_port }}:{{ unifi_os_speedtest_port }}/tcp
+
+# Localhost-only UI/API bypass ports
+PublishPort=127.0.0.1:{{ unifi_os_web_ui_port }}:443/tcp
+PublishPort=127.0.0.1:{{ unifi_os_network_app_bypass_port }}:{{ unifi_os_network_app_bypass_port }}/tcp
+PublishPort=127.0.0.1:{{ unifi_os_postgres_port }}:{{ unifi_os_postgres_port }}/tcp
+
+# Required mounts for systemd-based containerized UniFi OS Server
+Volume=/sys/fs/cgroup:/sys/fs/cgroup:rw
+Volume={{ unifi_os_uos_data_dir }}:/var/lib/uosserver:Z
+Volume={{ unifi_os_uos_data_dir }}:/var/lib/unifi:Z
+Volume={{ unifi_os_app_data_dir }}:/data:Z
+
+Tmpfs=/run:exec
+Tmpfs=/run/lock
+Tmpfs=/tmp:exec
+Tmpfs=/var/lib/journal
+Tmpfs=/var/opt/unifi/tmp:size=64m
+Tmpfs=/data/unifi-core/config/http
+
+Environment=TZ={{ unifi_os_timezone }}
+Environment=UOS_SYSTEM_IP={{ unifi_os_system_ip }}
+Environment=EXPOSE_NETWORK_APP={{ 'true' if unifi_os_expose_network_app | bool else 'false' }}
+Environment=MONGO_INTERNAL={{ 'true' if unifi_os_mongo_internal | bool else 'false' }}
+Environment=MONGO_HOST={{ unifi_os_mongo_host }}
+Environment=MONGO_PORT={{ unifi_os_mongo_port }}
+
+HealthCmd=curl -f -k https://localhost || exit 1
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=3
+HealthStartPeriod=600s
+
+[Service]
+Restart=always
+TimeoutStopSec=90
+
+[Install]
+WantedBy=default.target

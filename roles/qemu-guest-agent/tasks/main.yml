@@ -3,4 +3,5 @@
   ansible.builtin.package:
     name: "{{ qemu_guest_agent_package }}"
     state: present
+    use: "{{ 'apt' if (host_is_debian | default(ansible_facts['os_family'] == 'Debian')) else 'dnf' }}"
   become: true

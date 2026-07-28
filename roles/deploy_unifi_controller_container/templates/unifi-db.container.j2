@@ -1,0 +1,30 @@
+# unifi-db.container
+# Managed by Ansible - Podman Quadlet for UniFi MongoDB
+
+[Unit]
+Description=MongoDB for UniFi Network Application
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image={{ unifi_mongo_image }}
+AutoUpdate={{ unifi_mongo_auto_update }}
+Pull={{ unifi_mongo_pull_policy }}
+ContainerName={{ unifi_mongo_container_name }}
+
+# Network
+Network={{ podman_network }}
+
+# Data and init script
+Volume={{ unifi_mongo_data_dir }}:/data/db:Z
+Volume={{ unifi_mongo_init_script_path }}:/docker-entrypoint-initdb.d/init-mongo.sh:ro,Z
+
+# Environment file with credentials
+EnvironmentFile={{ unifi_mongo_env_file }}
+
+[Service]
+Restart=always
+TimeoutStopSec=70
+
+[Install]
+WantedBy=default.target

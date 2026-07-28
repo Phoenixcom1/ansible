@@ -2,9 +2,12 @@
 
 Deploys UniFi Network Controller in a rootless Podman container managed by **Podman Quadlets** with automatic updates.
 
+When using `linuxserver/unifi-network-application`, this role also deploys a MongoDB companion container (`unifi-db`) in the same Quadlet stack.
+
 ## Features
 
 - UniFi Network Controller in rootless Podman container
+- Optional MongoDB companion service (`unifi-db`) for LinuxServer UniFi image
 - **Quadlet systemd integration** (modern Podman approach)
 - **Automatic container updates** via `AutoUpdate=registry`
 - **Built-in health checks** - monitors controller readiness
@@ -33,6 +36,27 @@ This role uses **Podman Quadlets** - the modern, recommended way to manage conta
 - ✅ **Survives system reboots** (via user lingering)
 
 ## Configuration
+
+### LinuxServer Image Notes
+
+If `unifi_image` is set to `linuxserver/unifi-network-application`, this role will:
+
+- Deploy `unifi-db.container` and wait for MongoDB readiness
+- Mount UniFi data to `/config`
+- Inject required `MONGO_*` environment variables into the UniFi container via a shared `.env` file
+
+Credential handling:
+
+- The role creates `{{ unifi_mongo_env_file }}` once (permissions `0600`) if missing.
+- The `.env` file is not overwritten on later runs.
+- Update credentials directly on the target host, then rerun the role.
+
+Required variables in `{{ unifi_mongo_env_file }}`:
+
+```yaml
+MONGO_INITDB_ROOT_PASSWORD=your-strong-root-password
+MONGO_PASS=your-strong-db-password
+```
 
 ### Default Settings (defaults/main.yml)
 
@@ -68,7 +92,32 @@ ansible-playbook -i inventory/01-lab.yml noble_base.yml -l docker-vm
 
 ### Quadlet Location
 
-`~/.config/containers/systemd/unifi.container`
+`~/.config/containers/systemd/{{ unifi_quadlet_name | default('unifi') }}.container` (default: `unifi.container`)
+
+### Important: User Context and Service Name
+
+`systemctl --user` only sees services for the current Linux user session.
+The UniFi Quadlet is deployed for `podman_user` (default: `podman`), not for `ansible`.
+
+If you run commands as another user, use:
+
+```bash
+sudo -u podman XDG_RUNTIME_DIR=/run/user/$(id -u podman) systemctl --user status unifi
+```
+
+To discover the actual generated unit name:
+
+```bash
+sudo -u podman XDG_RUNTIME_DIR=/run/user/$(id -u podman) systemctl --user list-unit-files | grep -Ei 'unifi|container'
+```
+
+You can override the default names in role vars:
+
+```yaml
+unifi_service_name: "unifi"
+unifi_container_name: "{{ unifi_service_name }}"
+unifi_quadlet_name: "{{ unifi_service_name }}"
+```
 
 ### As Podman User
 
@@ -227,7 +276,6 @@ sudo cp /opt/podman/unifi/data/backup/autobackup/autobackup_*.unf ~/unifi-backup
 2. **Access UniFi Controller** at https://unifi.kerberos.fassbender.contact
 
 3. **During initial setup**:
-
    - Select **"Restore from Backup"**
    - Upload your `.unf` backup file
    - Wait for restoration to complete (controller will restart)
@@ -296,7 +344,6 @@ After restoring a backup, UniFi devices may need to be re-adopted to the control
 **Method 1: Via Device SSH (Most Reliable)**
 
 1. **Get SSH credentials**:
-
    - UniFi Controller → **Settings** → Search for **"SSH"**
    - Note the username and password
 

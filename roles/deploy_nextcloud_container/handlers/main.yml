@@ -1,0 +1,8 @@
+---
+# Handlers for Nextcloud deployment
+
+- name: Reload nginx
+  systemd:
+    name: nginx
+    state: reloaded
+  become: true
