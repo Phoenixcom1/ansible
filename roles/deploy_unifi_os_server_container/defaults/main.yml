@@ -1,0 +1,67 @@
+---
+# UniFi OS Server deployment configuration
+
+unifi_os_project_name: unifi-os-server
+
+# Podman user and network
+podman_user: "{{ podman_username }}"
+podman_network: "podman_bridge"
+
+# Service and container names
+unifi_os_service_name: "unifi-os-server"
+unifi_os_container_name: "unifi-os-server"
+unifi_os_quadlet_name: "unifi-os-server"
+
+unifi_os_mongo_service_name: "unifi-os-server-mongodb"
+unifi_os_mongo_container_name: "unifi-os-server-mongodb"
+unifi_os_mongo_quadlet_name: "unifi-os-server-mongodb"
+
+# Images
+unifi_os_image: "ghcr.io/unihosted/unifi-os-server-docker:latest"
+unifi_os_mongo_image: "docker.io/library/mongo:4.4"
+unifi_os_pull_policy: "missing"
+unifi_os_auto_update: "registry"
+unifi_os_mongo_pull_policy: "missing"
+unifi_os_mongo_auto_update: "registry"
+
+# Domain and reverse proxy
+unifi_os_domain: "unifi2.kerberos.fassbender.contact"
+unifi_os_web_ui_port: 11443
+unifi_os_published_server_url: "https://{{ unifi_os_domain }}"
+
+# Runtime settings
+unifi_os_timezone: "Europe/Paris"
+unifi_os_system_ip: "{{ static_ip | default(ansible_host | default('127.0.0.1')) }}"
+unifi_os_expose_network_app: false
+
+# Mongo mode and connectivity
+unifi_os_mongo_internal: false
+unifi_os_mongo_host: "{{ unifi_os_mongo_container_name }}"
+unifi_os_mongo_port: 27017
+
+# Persistent storage
+unifi_os_data_root: "{{ podman_service_dir }}/{{ unifi_os_project_name }}"
+unifi_os_uos_data_dir: "{{ unifi_os_data_root }}/uos"
+unifi_os_app_data_dir: "{{ unifi_os_data_root }}/data"
+unifi_os_mongo_data_dir: "{{ unifi_os_data_root }}/mongodb"
+
+# Ports exposed on the host (matching UniHosted reference compose)
+unifi_os_inform_port: 8080
+unifi_os_controller_api_port: 8443
+unifi_os_secure_portal_port: 8444
+unifi_os_hotspot_http_port_start: 8880
+unifi_os_hotspot_http_port_end: 8882
+unifi_os_discovery_port: 10003
+unifi_os_stun_port: 3478
+unifi_os_syslog_port: 5514
+unifi_os_speedtest_port: 6789
+unifi_os_network_app_bypass_port: 7443
+unifi_os_postgres_port: 5432
+
+# Cleanup of old UniFi Controller role artifacts
+unifi_legacy_service_name: "unifi"
+unifi_legacy_mongo_service_name: "unifi-db"
+unifi_legacy_nginx_conf: "/etc/nginx/conf.d/unifi.conf"
+unifi_legacy_quadlets:
+  - "/home/{{ podman_user }}/.config/containers/systemd/unifi.container"
+  - "/home/{{ podman_user }}/.config/containers/systemd/unifi-db.container"
