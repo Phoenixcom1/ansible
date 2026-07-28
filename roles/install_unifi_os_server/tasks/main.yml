@@ -1,0 +1,291 @@
+---
+# Install UniFi OS Server natively on Linux using the official installer flow.
+
+- name: Ensure role runs on Debian-family hosts
+  assert:
+    that:
+      - ansible_os_family in ['Debian', 'RedHat']
+    fail_msg: >-
+      install_unifi_os_server currently supports Debian and RedHat families.
+
+- name: Validate UniFi OS Server installer URL
+  assert:
+    that:
+      - unifi_os_server_installer_url | length > 0
+      - unifi_os_server_installer_url is match('^https?://')
+    fail_msg: >-
+      Set unifi_os_server_installer_url to the direct Linux installer link from
+      https://community.ui.com/releases or https://ui.com/download.
+
+- name: Validate downloader choice
+  assert:
+    that:
+      - unifi_os_server_downloader in ['curl', 'wget']
+    fail_msg: "unifi_os_server_downloader must be either 'curl' or 'wget'."
+
+- name: Build installer path facts
+  set_fact:
+    unifi_os_server_installer_filename: "{{ unifi_os_server_installer_url | regex_replace('^.*/', '') }}"
+    unifi_os_server_installer_path: "{{ unifi_os_server_download_dir }}/{{ unifi_os_server_installer_url | regex_replace('^.*/', '') }}"
+
+- name: Install UniFi OS Server prerequisite packages on Debian
+  apt:
+    name: "{{ (unifi_os_server_required_packages + [unifi_os_server_downloader]) | unique }}"
+    state: present
+    update_cache: true
+  become: true
+  when: ansible_os_family == 'Debian'
+
+- name: Check UniFi OS Server prerequisite packages on RedHat-family
+  command: "rpm -q {{ item }}"
+  become: true
+  loop: "{{ (unifi_os_server_required_packages + [unifi_os_server_downloader]) | unique }}"
+  register: unifi_os_server_rpm_pkg_checks
+  changed_when: false
+  failed_when: false
+  when: ansible_os_family == 'RedHat'
+
+- name: Build missing package list for RedHat-family
+  set_fact:
+    unifi_os_server_missing_rpm_packages: "{{ unifi_os_server_rpm_pkg_checks.results | rejectattr('rc', 'equalto', 0) | map(attribute='item') | list }}"
+  when: ansible_os_family == 'RedHat'
+
+- name: Install missing UniFi OS Server prerequisite packages on RedHat-family
+  command: "dnf -y install {{ unifi_os_server_missing_rpm_packages | join(' ') }}"
+  become: true
+  register: unifi_os_server_dnf_install
+  changed_when: unifi_os_server_missing_rpm_packages | length > 0
+  when:
+    - ansible_os_family == 'RedHat'
+    - unifi_os_server_missing_rpm_packages | length > 0
+
+- name: Ensure installer download directory exists
+  file:
+    path: "{{ unifi_os_server_download_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Check available disk space for installer download
+  command: "df -Pm {{ unifi_os_server_download_dir }}"
+  become: true
+  register: unifi_os_server_download_df
+  changed_when: false
+
+- name: Extract available disk space in MB
+  set_fact:
+    unifi_os_server_download_free_mb: "{{ unifi_os_server_download_df.stdout_lines[1].split()[3] | int }}"
+
+- name: Fail when free disk space is too low for installer download
+  fail:
+    msg: >-
+      Not enough free disk space in {{ unifi_os_server_download_dir }} to download UniFi OS Server.
+      Available: {{ unifi_os_server_download_free_mb }} MB,
+      required minimum: {{ unifi_os_server_min_free_space_mb }} MB.
+      Free space and rerun the playbook.
+  when: (unifi_os_server_download_free_mb | int) < (unifi_os_server_min_free_space_mb | int)
+
+- name: Check free disk space for installer required paths
+  command: "df -Pk {{ item.path }}"
+  become: true
+  loop: "{{ unifi_os_server_space_requirements }}"
+  register: unifi_os_server_required_space_checks
+  changed_when: false
+
+- name: Build installer path free-space failures
+  set_fact:
+    unifi_os_server_space_failures: "{{ (unifi_os_server_space_failures | default([])) + [item.item.path ~ ': requires ' ~ item.item.min_gb ~ ' GB, available ' ~ (((item.stdout_lines[1].split()[3] | int) / 1024 / 1024) | round(2)) ~ ' GB'] }}"
+  loop: "{{ unifi_os_server_required_space_checks.results }}"
+  when: (item.stdout_lines[1].split()[3] | int) < ((item.item.min_gb | int) * 1024 * 1024)
+
+- name: Fail when installer path free space requirements are not met
+  fail:
+    msg: >-
+      UniFi OS Server installer disk requirements are not met: {{ unifi_os_server_space_failures | join('; ') }}.
+      Free up space or increase disk size, then rerun.
+  when:
+    - unifi_os_server_space_failures is defined
+    - (unifi_os_server_space_failures | length) > 0
+
+- name: Check whether UniFi OS Server systemd unit exists
+  stat:
+    path: "{{ item }}"
+  become: true
+  loop:
+    - /etc/systemd/system/uosserver.service
+    - /lib/systemd/system/uosserver.service
+    - /usr/lib/systemd/system/uosserver.service
+  register: unifi_os_server_unit_stats
+
+- name: Determine whether UniFi OS Server is already installed
+  set_fact:
+    unifi_os_server_installed: "{{ (unifi_os_server_unit_stats.results | selectattr('stat.exists', 'equalto', true) | list | length) > 0 }}"
+
+- name: Check whether installer file already exists
+  stat:
+    path: "{{ unifi_os_server_installer_path }}"
+  become: true
+  register: unifi_os_server_installer_stat
+
+- name: Determine if existing installer appears incomplete
+  set_fact:
+    unifi_os_server_installer_incomplete: >-
+      {{
+        unifi_os_server_installer_stat.stat.exists
+        and (unifi_os_server_installer_stat.stat.size | int) < ((unifi_os_server_min_installer_size_mb | int) * 1024 * 1024)
+      }}
+
+- name: Remove incomplete installer file before re-download
+  file:
+    path: "{{ unifi_os_server_installer_path }}"
+    state: absent
+  become: true
+  when: unifi_os_server_installer_incomplete
+
+- name: Gather service facts for legacy UniFi service handling
+  service_facts:
+  when: unifi_os_server_stop_legacy_network_server | bool
+
+- name: Stop and disable legacy UniFi Network Server service
+  systemd:
+    name: "{{ unifi_os_server_legacy_service_name }}"
+    state: stopped
+    enabled: false
+  become: true
+  when:
+    - unifi_os_server_stop_legacy_network_server | bool
+    - (unifi_os_server_legacy_service_name ~ '.service') in ansible_facts.services
+
+- name: Download installer with curl
+  command: >-
+    curl -fL -o {{ unifi_os_server_installer_path }} {{ unifi_os_server_installer_url }}
+  become: true
+  register: unifi_os_server_download
+  changed_when: true
+  when:
+    - unifi_os_server_downloader == 'curl'
+    - unifi_os_server_force_download or unifi_os_server_installer_incomplete or (not unifi_os_server_installer_stat.stat.exists)
+
+- name: Download installer with wget
+  command: >-
+    wget -O {{ unifi_os_server_installer_path }} {{ unifi_os_server_installer_url }}
+  become: true
+  register: unifi_os_server_download
+  changed_when: true
+  when:
+    - unifi_os_server_downloader == 'wget'
+    - unifi_os_server_force_download or unifi_os_server_installer_incomplete or (not unifi_os_server_installer_stat.stat.exists)
+
+- name: Refresh installer file state after download step
+  stat:
+    path: "{{ unifi_os_server_installer_path }}"
+  become: true
+  register: unifi_os_server_installer_stat_after_download
+
+- name: Fail when installer file is missing
+  fail:
+    msg: >-
+      UniFi OS Server installer is missing at {{ unifi_os_server_installer_path }}.
+      Verify unifi_os_server_installer_url and network connectivity.
+  when: not unifi_os_server_installer_stat_after_download.stat.exists
+
+- name: Ensure installer is executable
+  file:
+    path: "{{ unifi_os_server_installer_path }}"
+    mode: "0755"
+  become: true
+  when: unifi_os_server_installer_stat_after_download.stat.exists
+
+- name: Run UniFi OS Server installer
+  shell: >-
+    {% if unifi_os_server_installer_auto_confirm | bool %}
+    printf 'y\n' | timeout {{ unifi_os_server_installer_timeout_seconds | int }}
+    {{ unifi_os_server_installer_path }} {{ unifi_os_server_installer_args }}
+    {% else %}
+    timeout {{ unifi_os_server_installer_timeout_seconds | int }}
+    {{ unifi_os_server_installer_path }} {{ unifi_os_server_installer_args }}
+    {% endif %}
+  become: true
+  register: unifi_os_server_install
+  changed_when: true
+  failed_when: false
+  when: (not unifi_os_server_installed) or (unifi_os_server_reinstall | bool)
+
+- name: Display UniFi installer output (stdout/stderr tail)
+  debug:
+    msg: |
+      UniFi installer command: timeout {{ unifi_os_server_installer_timeout_seconds | int }} {{ unifi_os_server_installer_path }} {{ unifi_os_server_installer_args }}
+      Exit code: {{ unifi_os_server_install.rc | default('n/a') }}
+
+      --- stdout (tail {{ unifi_os_server_installer_output_tail_lines }} lines) ---
+      {{ ((unifi_os_server_install.stdout_lines | default([]))[-(unifi_os_server_installer_output_tail_lines | int):] | join('\n')) if (unifi_os_server_install.stdout_lines | default([]) | length > 0) else '(empty)' }}
+
+      --- stderr (tail {{ unifi_os_server_installer_output_tail_lines }} lines) ---
+      {{ ((unifi_os_server_install.stderr_lines | default([]))[-(unifi_os_server_installer_output_tail_lines | int):] | join('\n')) if (unifi_os_server_install.stderr_lines | default([]) | length > 0) else '(empty)' }}
+  when:
+    - unifi_os_server_install is defined
+    - unifi_os_server_show_installer_output | bool
+
+- name: Fail when UniFi installer times out
+  fail:
+    msg: >-
+      UniFi OS Server installer exceeded timeout ({{ unifi_os_server_installer_timeout_seconds }}s).
+      This may indicate an interactive prompt or a stalled install.
+      Set unifi_os_server_installer_args for unattended mode (if supported by the installer)
+      or increase unifi_os_server_installer_timeout_seconds.
+      stdout: {{ unifi_os_server_install.stdout | default('') }}
+      stderr: {{ unifi_os_server_install.stderr | default('') }}
+  when:
+    - unifi_os_server_install is defined
+    - unifi_os_server_install.rc == 124
+
+- name: Fail when UniFi installer exits with error
+  fail:
+    msg: >-
+      UniFi OS Server installer failed with rc={{ unifi_os_server_install.rc }}.
+      stdout: {{ unifi_os_server_install.stdout | default('') }}
+      stderr: {{ unifi_os_server_install.stderr | default('') }}
+  when:
+    - unifi_os_server_install is defined
+    - unifi_os_server_install.rc not in [0, 124]
+
+- name: Reload systemd daemon when installer ran
+  systemd:
+    daemon_reload: true
+  become: true
+  when: unifi_os_server_install is defined and unifi_os_server_install is changed
+
+- name: Ensure uosserver service is enabled and in desired state
+  systemd:
+    name: uosserver
+    enabled: "{{ unifi_os_server_enable_on_boot }}"
+    state: "{{ unifi_os_server_state }}"
+  become: true
+  when: unifi_os_server_manage_service | bool
+
+- name: Check uosserver service active state
+  command: systemctl is-active uosserver
+  become: true
+  register: unifi_os_server_service_active
+  changed_when: false
+  failed_when: false
+  when: unifi_os_server_manage_service | bool
+
+- name: Optionally remove installer file
+  file:
+    path: "{{ unifi_os_server_installer_path }}"
+    state: absent
+  become: true
+  when: unifi_os_server_cleanup_installer | bool
+
+- name: Display UniFi OS Server installation summary
+  debug:
+    msg: |
+      UniFi OS Server role completed.
+      - Installer URL: {{ unifi_os_server_installer_url }}
+      - Already installed before run: {{ unifi_os_server_installed }}
+      - Reinstall requested: {{ unifi_os_server_reinstall }}
+      - Service managed: {{ unifi_os_server_manage_service }}
+      - Service state: {{ unifi_os_server_service_active.stdout | default('not checked') }}
