@@ -1,168 +1,144 @@
-# Nextcloud AIO Container Role
+# Nextcloud Container Role
 
-Deploys Nextcloud All-in-One (AIO) with Podman Quadlet in the same style as your other roles.
-
-This role now follows the official AIO architecture:
-
-- A single mastercontainer (`nextcloud-aio-mastercontainer`) orchestrates sibling containers.
-- PostgreSQL is provided internally by AIO (official default).
-- Office is included in AIO and can be enabled in AIO UI (no separate external Office container here).
-- Talk high-performance backend on a dedicated server remains supported via variables and guidance.
-
-## Important Compatibility Note
-
-Official AIO documentation is Docker-first and says Podman is not officially supported. This role uses Podman Docker-API compatibility by mounting the rootless Podman socket to `/var/run/docker.sock` inside the mastercontainer.
-
-If your environment has issues with this compatibility mode, the official fallback is AIO manual-install or Docker rootless.
+Deploys Nextcloud on a Fedora-compatible Podman host using Podman Quadlets and PostgreSQL.
 
 ## Features
 
-- AIO mastercontainer via Quadlet
-- PostgreSQL database via official AIO internal stack
-- Included Office support via AIO (optional through AIO interface)
-- Nginx reverse proxy config for your cloud domain
-- Configurable host datadir via `NEXTCLOUD_DATADIR`
-- Talk HPB external backend variables retained
+- Nextcloud web application in a rootless Podman container
+- PostgreSQL database container for recommended production deployment
+- Separate data, config, apps, and themes volumes
+- Optional EuroOffice integration
+- Support for external Talk server setup via separate host
+- Modern Podman Quadlet + systemd integration
 
 ## Architecture
 
-- Quadlet service: `nextcloud-aio-mastercontainer`
-- AIO interface: `https://127.0.0.1:8081` (self-signed, use IP access for setup)
-- Nextcloud endpoint behind nginx: `https://{{ nextcloud_domain }}`
-- Internal DB: PostgreSQL managed by AIO
+This role creates:
 
-## Configuration
+- `nextcloud-postgres.container` – PostgreSQL database
+- `nextcloud.container` – Nextcloud web app
+- `nextcloud.network` – Podman network for the stack
 
-Main variables are in `defaults/main.yml`.
+The role uses Podman Quadlets for clean systemd-managed container deployment.
 
-```yaml
-nextcloud_domain: "cloud.kerberos.fassbender.contact"
+The stack is published to `127.0.0.1:{{ nextcloud_port }}` by default, so reverse proxy configuration can be applied from the host.
 
-# AIO master image
-nextcloud_aio_image: "ghcr.io/nextcloud-releases/all-in-one:latest"
+## Recommended database
 
-# AIO interface (self-signed)
-nextcloud_aio_interface_bind_ip: "127.0.0.1"
-nextcloud_aio_interface_port: 8081
+Nextcloud is deployed with PostgreSQL, which is recommended over SQLite and more suitable than MariaDB for a medium-sized home deployment.
 
-# AIO Apache endpoint for external nginx reverse proxy
-nextcloud_aio_apache_bind_ip: "127.0.0.1"
-nextcloud_aio_apache_port: 11000
+## Variables
 
-# Podman compatibility for AIO Docker API client
-nextcloud_aio_docker_api_version: "1.41"
-nextcloud_aio_network_mode: "bridge"
-nextcloud_aio_security_label_disable: true
-
-# Optional explicit DNS for domain validation inside the mastercontainer
-nextcloud_aio_dns_servers: []
-nextcloud_aio_dns_search: null
-
-# Datadir (must be set before first install and should not be changed later)
-nextcloud_aio_datadir: "/opt/podman/nextcloud/data"
-
-# Talk HPB on dedicated server
-nextcloud_enable_talk_hpb: false
-nextcloud_talk_hpb_url: "https://talk-backend.example.com"
-nextcloud_talk_hpb_secret: "CHANGE_ME_SHARED_SECRET"
-```
-
-## Prerequisites
-
-1. Rootless Podman socket enabled for the podman user:
-
-```bash
-systemctl --user enable --now podman.socket
-```
-
-2. Nginx role available/running on host (as with your other services).
-
-3. DNS for `{{ nextcloud_domain }}` points to your reverse-proxy host.
-
-## Deployment
-
-```bash
-ansible-playbook noble_base.yml -i inventory/01-lab.yml -l docker-vm --tags deploy_nextcloud_container
-```
-
-After deployment:
-
-1. Open AIO interface locally/by IP via port 8081 and complete initial setup.
-2. Ensure AIO uses your domain and reverse-proxy mode.
-3. Start containers from AIO UI.
-4. Access Nextcloud at your domain through nginx.
-
-### First-Time Setup On A Headless VM
-
-If the VM has no browser, use an SSH local tunnel from your workstation to access the AIO setup UI.
-
-1. Start the tunnel from your local machine and keep it running:
-
-```bash
-ssh -N -L 8081:127.0.0.1:8081 -i ~/.ssh/id_ed25519_priv podman@<vm-ip>
-```
-
-2. Open the AIO setup page locally in your browser:
-
-```text
-https://127.0.0.1:8081/setup
-```
-
-3. Complete the AIO setup and start the child containers.
-
-4. Once setup is complete, test the AIO apache endpoint on the VM:
-
-```bash
-curl -kI https://127.0.0.1:11000
-```
-
-5. Access Nextcloud via your domain through nginx.
-
-Notes:
-
-- Seeing `502 Bad Gateway` on your domain before step 3 is expected. Nginx proxies to port 11000, which is only available after the AIO child stack is started.
-- Use `-fN` instead of `-N` if you want the tunnel in the background.
-
-## Reverse Proxy
-
-This role deploys nginx config at:
-
-- `/etc/nginx/conf.d/{{ nextcloud_domain }}.conf`
-
-It proxies to the AIO Apache endpoint on:
-
-- `https://{{ nextcloud_aio_apache_bind_ip }}:{{ nextcloud_aio_apache_port }}`
-
-## Talk HPB on Dedicated Server
-
-Keep using your external dedicated Talk backend plan:
+The role uses these defaults from `roles/deploy_nextcloud_container/defaults/main.yml`:
 
 ```yaml
-nextcloud_enable_talk_hpb: true
-nextcloud_talk_hpb_url: "https://talk-backend.example.com"
-nextcloud_talk_hpb_secret: "CHANGE_ME_SHARED_SECRET"
+nextcloud_domain: "nextcloud.kerberos.fassbender.contact"
+nextcloud_port: 8080
+nextcloud_internal_port: 80
+nextcloud_admin_user: "admin"
+nextcloud_admin_password: "nextcloud"
+nextcloud_admin_email: "admin@kerberos.fassbender.contact"
+nextcloud_overwritehost: "https://{{ nextcloud_domain }}"
+nextcloud_table_prefix: "oc_"
+
+nextcloud_db_name: "nextcloud"
+nextcloud_db_user: "nextcloud"
+nextcloud_db_password: "nextcloud"
+
+nextcloud_image: "docker.io/nextcloud:29-fpm"
+postgres_image: "docker.io/postgres:16-alpine"
 ```
 
-Then configure Talk in Nextcloud admin settings with that signaling URL and secret.
+### EuroOffice integration
 
-## Service Management
+Use `nextcloud_enable_eurooffice: true` to deploy EuroOffice alongside Nextcloud.
+
+```yaml
+nextcloud_enable_eurooffice: true
+nextcloud_eurooffice_image: "ghcr.io/euro-office/documentserver:latest"
+```
+
+### EuroOffice JWT secret (without committing secrets)
+
+EuroOffice enables JWT by default. This role supports loading the JWT secret from an environment variable on the Ansible controller, so no secret needs to be committed to the repository.
+
+Secret format restrictions (for safe parsing):
+- Maximum 128 characters
+- Alphanumeric characters, dots (.), underscores (_), and dashes (-) only
+- No spaces or special characters
+
+Default behavior:
+
+- `nextcloud_eurooffice_jwt_secret` stays empty in repo-managed vars
+- `nextcloud_eurooffice_jwt_secret_from_env` reads `NEXTCLOUD_EUROOFFICE_JWT_SECRET` on the controller
+- secret is written on the target host to `{{ nextcloud_repo_path }}/eurooffice-jwt.env` with mode `0600`
+- EuroOffice Quadlet loads it via `EnvironmentFile`
+
+Set the secret before running Ansible (example with alphanumeric + dashes):
 
 ```bash
-# Status
-systemctl --user status nextcloud-aio-mastercontainer
+export NEXTCLOUD_EUROOFFICE_JWT_SECRET='Your-Long-Random-Secret-With-Dashes-12345'
+ansible-playbook -i inventory/01-lab.yml fedora_base.yml --limit podman-vm -v
+```
 
-# Restart
-systemctl --user restart nextcloud-aio-mastercontainer
+In Nextcloud Admin settings for EuroOffice, use:
 
-# Logs
-journalctl --user -u nextcloud-aio-mastercontainer -f
+- Document server URL: `https://eurooffice.<your-nextcloud-domain>`
+- JWT secret: same value as `NEXTCLOUD_EUROOFFICE_JWT_SECRET`
+- JWT header: `AuthorizationJwt`
+
+### Talk server integration
+
+Use an external Talk server by configuring:
+
+```yaml
+nextcloud_talk_server_url: "https://talk.example.com"
+nextcloud_talk_server_public_url: "https://talk.example.com"
+```
+
+This allows the talk component to be hosted outside your homelab.
+
+## Usage
+
+Include the role in your playbook:
+
+```yaml
+- hosts: all
+  roles:
+    - deploy_nextcloud_container
 ```
 
 ## Notes
 
-- AIO includes PostgreSQL and Redis internally.
-- AIO includes Office support internally; no separate Office container is needed in this role.
-- Keep `NEXTCLOUD_DATADIR` stable after first setup, as recommended by official docs.
-- If AIO reports an unsupported Docker API version with Podman, set `nextcloud_aio_docker_api_version` to a version supported by your Podman socket.
-- For rootless Podman + AIO networking stability, keep `nextcloud_aio_network_mode: "bridge"`.
-- If AIO domain validation fails because internal DNS is not reachable from the container, set `nextcloud_aio_dns_servers` (for example `['192.168.1.1']`).
+- The role assumes `podman_user` and `podman_username` are defined globally in your existing inventory.
+- The role writes Quadlet files to `/home/{{ podman_user }}/.config/containers/systemd/`.
+- Stack target files are written to `/home/{{ podman_user }}/.config/systemd/user/`.
+- The Nextcloud stack uses PostgreSQL and does not rely on the AIO image.
+- The stack is available at `127.0.0.1:{{ nextcloud_port }}` on the host system.
+- Nginx reverse proxy or similar should be configured to handle TLS termination and route to the stack port.
+
+## Stack Management
+
+```bash
+# View the stack target status
+systemctl --user status nextcloud-stack.target
+
+# Restart the entire stack
+systemctl --user restart nextcloud-stack.target
+
+# View individual service logs
+journalctl --user -xeu nextcloud.service -n 50
+journalctl --user -xeu nextcloud-postgres.service -n 50
+journalctl --user -xeu nextcloud-eurooffice.service -n 50  # if enabled
+```
+
+## Reverse Proxy Integration
+
+Configure your reverse proxy to forward to `http://localhost:{{ nextcloud_port }}` with the following headers:
+
+```
+X-Real-IP: $remote_addr;
+X-Forwarded-For: $proxy_add_x_forwarded_for;
+X-Forwarded-Proto: $scheme;
+X-Forwarded-Host: {{ nextcloud_domain }};
+```

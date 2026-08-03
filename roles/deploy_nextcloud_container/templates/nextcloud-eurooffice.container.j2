@@ -1,0 +1,35 @@
+# Nextcloud EuroOffice Container
+# This file is managed by Ansible - DO NOT EDIT MANUALLY
+# Role: deploy_nextcloud_container
+
+[Unit]
+Description=Nextcloud EuroOffice Collaboration Service
+Documentation=https://github.com/nextcloud/all-in-one
+After={{ nextcloud_network }}.network {{ nextcloud_container }}.service
+Wants={{ nextcloud_network }}.network {{ nextcloud_container }}.service
+
+[Container]
+Image={{ nextcloud_eurooffice_image }}
+ContainerName={{ nextcloud_eurooffice_container }}
+AutoUpdate=registry
+Pull={{ nextcloud_pull_policy }}
+Network={{ nextcloud_network }}.network
+{% if nextcloud_dns_server | length > 0 %}
+DNS={{ nextcloud_dns_server }}
+{% endif %}
+{% if nextcloud_eurooffice_internal_host_alias_enabled | bool %}
+AddHost={{ nextcloud_domain }}:{{ nextcloud_host_containers_internal_ip }}
+{% endif %}
+Environment=NEXTCLOUD_URL={{ nextcloud_overwritehost }}
+Environment=NEXTCLOUD_EUROOFFICE_URL={{ nextcloud_eurooffice_url }}
+Environment=JWT_ENABLED={{ (nextcloud_eurooffice_jwt_enabled | bool) | ternary('true', 'false') }}
+Environment=JWT_HEADER={{ nextcloud_eurooffice_jwt_header }}
+EnvironmentFile={{ nextcloud_eurooffice_jwt_secret_file }}
+PublishPort=127.0.0.1:9980:80
+
+[Service]
+Restart=always
+TimeoutStartSec=900
+
+[Install]
+WantedBy={{ nextcloud_systemd_target }}

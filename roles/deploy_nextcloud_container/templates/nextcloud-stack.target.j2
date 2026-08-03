@@ -1,0 +1,13 @@
+# Nextcloud Stack systemd Target
+# This file is managed by Ansible - DO NOT EDIT MANUALLY
+# Role: deploy_nextcloud_container
+
+[Unit]
+Description=Nextcloud Stack
+Documentation=https://nextcloud.com/
+Requires={{ nextcloud_network }}.network
+Wants={{ nextcloud_network }}.network {{ nextcloud_postgres_container }}.service {{ nextcloud_container }}.service{% if nextcloud_enable_eurooffice %} {{ nextcloud_eurooffice_container }}.service{% endif %}
+After={{ nextcloud_network }}.network {{ nextcloud_postgres_container }}.service {{ nextcloud_container }}.service{% if nextcloud_enable_eurooffice %} {{ nextcloud_eurooffice_container }}.service{% endif %}
+
+[Install]
+WantedBy=default.target

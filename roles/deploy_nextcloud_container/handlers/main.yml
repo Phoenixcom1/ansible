@@ -1,5 +1,25 @@
 ---
-# Handlers for Nextcloud deployment
+# Nextcloud service handlers
+
+- name: Restart Nextcloud stack target
+  systemd:
+    name: "{{ nextcloud_systemd_target }}"
+    state: restarted
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+
+- name: Reload Nextcloud stack
+  systemd:
+    name: "{{ nextcloud_systemd_target }}"
+    state: reloaded
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
 
 - name: Reload nginx
   systemd:

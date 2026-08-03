@@ -1,7 +1,6 @@
 ---
-# Nextcloud AIO deployment using Podman Quadlet (mastercontainer)
+# Nextcloud service deployment using Podman Quadlets
 
-# Discover podman user's UID and GID
 - name: Get podman user info
   getent:
     database: passwd
@@ -11,33 +10,11 @@
 
 - name: Extract podman user UID and GID
   set_fact:
-    nextcloud_uid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][1] }}"
-    nextcloud_gid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][2] }}"
+    podman_user_uid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][1] }}"
+    podman_user_gid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][2] }}"
   when: podman_user in podman_user_info.ansible_facts.getent_passwd
 
-- name: Define podman socket path for rootless user
-  set_fact:
-    nextcloud_podman_socket: "/run/user/{{ nextcloud_uid }}/podman/podman.sock"
-
-# Ensure user-level systemd and podman socket are available before checks
-- name: Enable lingering for podman user
-  command: loginctl enable-linger {{ podman_user }}
-  become: true
-  changed_when: false
-
-- name: Ensure rootless podman socket is enabled and started
-  systemd:
-    name: podman.socket
-    enabled: yes
-    state: started
-    scope: user
-  become: true
-  become_user: "{{ podman_user }}"
-  environment:
-    XDG_RUNTIME_DIR: "/run/user/{{ nextcloud_uid }}"
-
-# Create required directories
-- name: Create Nextcloud AIO directories
+- name: Create Nextcloud directories
   file:
     path: "{{ item }}"
     state: directory
@@ -47,59 +24,35 @@
   become: true
   loop:
     - "{{ nextcloud_repo_path }}"
-    - "{{ nextcloud_aio_config_dir }}"
-    - "{{ nextcloud_aio_datadir }}"
+    - "{{ nextcloud_html_dir }}"
+    - "{{ nextcloud_db_dir }}"
 
-# Verify podman socket exists (AIO talks to container engine through this socket)
-- name: Check if podman socket exists
-  stat:
-    path: "{{ nextcloud_podman_socket }}"
+- name: Create or update Nextcloud env file
+  ansible.builtin.copy:
+    dest: "{{ nextcloud_env_file }}"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0600"
+    content: |
+      POSTGRES_DB={{ nextcloud_db_name }}
+      POSTGRES_USER={{ nextcloud_db_user }}
+      POSTGRES_PASSWORD={{ nextcloud_db_password }}
+      POSTGRES_HOST={{ nextcloud_postgres_container }}
+      POSTGRES_PORT=5432
+      NEXTCLOUD_ADMIN_USER={{ nextcloud_admin_user }}
+      NEXTCLOUD_ADMIN_PASSWORD={{ nextcloud_admin_password }}
+      NEXTCLOUD_ADMIN_EMAIL={{ nextcloud_admin_email }}
+      NEXTCLOUD_TRUSTED_DOMAINS={{ nextcloud_domain }}
+      NEXTCLOUD_TABLE_PREFIX={{ nextcloud_table_prefix }}
+      OVERWRITEHOST={{ nextcloud_domain }}
+      OVERWRITEPROTOCOL=https
+      OVERWRITECLIURL={{ nextcloud_overwritehost }}
+      NEXTCLOUD_TALK_SERVER_URL={{ nextcloud_talk_server_url }}
+      NEXTCLOUD_TALK_SERVER_PUBLIC_URL={{ nextcloud_talk_server_public_url }}
+      NEXTCLOUD_EUROOFFICE_URL={{ nextcloud_eurooffice_url }}
   become: true
-  register: podman_socket_stat
 
-- name: Fail if podman socket is missing
-  fail:
-    msg: |
-      Podman socket not found at {{ nextcloud_podman_socket }}.
-      Start/enable rootless podman socket first:
-      systemctl --user enable --now podman.socket
-
-      Note: Nextcloud AIO is Docker-first; this role uses Podman Docker-API compatibility.
-  when: not podman_socket_stat.stat.exists
-
-# Ensure reruns can recover from stale failed units/containers that keep ports bound
-- name: Stop existing Nextcloud AIO mastercontainer service if present
-  systemd:
-    name: "{{ nextcloud_aio_container }}"
-    state: stopped
-    scope: user
-  become: true
-  become_user: "{{ podman_user }}"
-  environment:
-    XDG_RUNTIME_DIR: "/run/user/{{ nextcloud_uid }}"
-  failed_when: false
-
-- name: Reset failed state for Nextcloud AIO service
-  command: systemctl --user reset-failed {{ nextcloud_aio_container }}
-  become: true
-  become_user: "{{ podman_user }}"
-  environment:
-    XDG_RUNTIME_DIR: "/run/user/{{ nextcloud_uid }}"
-  changed_when: false
-  failed_when: false
-
-- name: Remove stale Nextcloud AIO mastercontainer if present
-  command: podman rm -f {{ nextcloud_aio_container }}
-  become: true
-  become_user: "{{ podman_user }}"
-  environment:
-    XDG_RUNTIME_DIR: "/run/user/{{ nextcloud_uid }}"
-  register: stale_mastercontainer_removed
-  changed_when: stale_mastercontainer_removed.rc == 0
-  failed_when: false
-
-# Create Quadlet and user-systemd directories
-- name: Ensure Quadlet directory exists
+- name: Create Quadlet directory for podman user
   file:
     path: "/home/{{ podman_user }}/.config/containers/systemd"
     state: directory
@@ -108,7 +61,77 @@
     mode: "0755"
   become: true
 
-- name: Ensure user systemd directory exists
+- name: Resolve EuroOffice JWT secret value
+  set_fact:
+    nextcloud_eurooffice_jwt_secret_effective: "{{ nextcloud_eurooffice_jwt_secret if (nextcloud_eurooffice_jwt_secret | length > 0) else nextcloud_eurooffice_jwt_secret_from_env }}"
+  no_log: true
+  when: nextcloud_enable_eurooffice
+
+- name: Validate EuroOffice JWT secret format
+  assert:
+    that:
+      - nextcloud_eurooffice_jwt_secret_effective | length <= 128
+      - nextcloud_eurooffice_jwt_secret_effective is regex('^[a-zA-Z0-9._-]*$')
+    fail_msg: "EuroOffice JWT secret must be max 128 chars and contain only alphanumeric, dots, underscores, or dashes (no spaces or special chars)"
+  no_log: true
+  when:
+    - nextcloud_enable_eurooffice
+    - nextcloud_eurooffice_jwt_secret_effective | length > 0
+
+- name: Write EuroOffice JWT secret env file
+  copy:
+    dest: "{{ nextcloud_eurooffice_jwt_secret_file }}"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0600"
+    content: "{% if nextcloud_eurooffice_jwt_secret_effective | length > 0 %}JWT_SECRET={{ nextcloud_eurooffice_jwt_secret_effective }}{% else %}# No JWT secret configured{% endif %}"
+  become: true
+  register: eurooffice_secret_env_deployed
+  no_log: true
+  when: nextcloud_enable_eurooffice
+
+- name: Deploy Nextcloud network Quadlet
+  template:
+    src: nextcloud.network.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/{{ nextcloud_network }}.network"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: network_quadlet_deployed
+
+- name: Deploy Nextcloud Postgres Quadlet container file
+  template:
+    src: nextcloud-postgres.container.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/{{ nextcloud_postgres_container }}.container"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: postgres_quadlet_deployed
+
+- name: Deploy Nextcloud Quadlet container file
+  template:
+    src: nextcloud.container.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/{{ nextcloud_container }}.container"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: nextcloud_quadlet_deployed
+
+- name: Deploy EuroOffice Quadlet container file
+  template:
+    src: nextcloud-eurooffice.container.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/{{ nextcloud_eurooffice_container }}.container"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: eurooffice_quadlet_deployed
+  when: nextcloud_enable_eurooffice
+
+- name: Create systemd user directory for Nextcloud stack target
   file:
     path: "/home/{{ podman_user }}/.config/systemd/user"
     state: directory
@@ -117,18 +140,21 @@
     mode: "0755"
   become: true
 
-# Deploy AIO mastercontainer Quadlet
-- name: Deploy Nextcloud AIO mastercontainer Quadlet
+- name: Deploy Nextcloud stack target
   template:
-    src: nextcloud-aio-mastercontainer.container.j2
-    dest: "/home/{{ podman_user }}/.config/containers/systemd/{{ nextcloud_aio_container }}.container"
+    src: nextcloud-stack.target.j2
+    dest: "/home/{{ podman_user }}/.config/systemd/user/{{ nextcloud_systemd_target }}"
     owner: "{{ podman_user }}"
     group: "{{ podman_user }}"
     mode: "0644"
   become: true
-  register: aio_quadlet_deployed
+  register: stack_target_deployed
 
-# Reload user systemd (Quadlet generation)
+- name: Enable lingering for podman user
+  command: loginctl enable-linger {{ podman_user }}
+  become: true
+  changed_when: false
+
 - name: Reload systemd user daemon (Quadlet generation)
   systemd:
     daemon_reload: yes
@@ -136,73 +162,80 @@
   become: true
   become_user: "{{ podman_user }}"
   environment:
-    XDG_RUNTIME_DIR: "/run/user/{{ nextcloud_uid }}"
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
 
 - name: Check if any Quadlet changed
   set_fact:
-    any_quadlet_changed: "{{ aio_quadlet_deployed.changed }}"
+    any_quadlet_changed: "{{ network_quadlet_deployed.changed or postgres_quadlet_deployed.changed or nextcloud_quadlet_deployed.changed or stack_target_deployed.changed or (eurooffice_quadlet_deployed.changed if nextcloud_enable_eurooffice else False) or (eurooffice_secret_env_deployed.changed if eurooffice_secret_env_deployed is defined else False) }}"
 
-- name: Restart Nextcloud AIO mastercontainer service if changed
+- name: Check if latest-tag restart is required
+  set_fact:
+    restart_for_latest_tags: "{{ nextcloud_restart_on_latest and (':latest' in nextcloud_image or (nextcloud_enable_eurooffice and ':latest' in nextcloud_eurooffice_image)) }}"
+
+- name: Restart required Nextcloud container services when refresh is required
   systemd:
-    name: "{{ nextcloud_aio_container }}"
+    name: "{{ item }}"
     state: restarted
     scope: user
   become: true
   become_user: "{{ podman_user }}"
   environment:
-    XDG_RUNTIME_DIR: "/run/user/{{ nextcloud_uid }}"
-  when: any_quadlet_changed
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  loop:
+    - "{{ nextcloud_postgres_container }}.service"
+    - "{{ nextcloud_container }}.service"
+  when: any_quadlet_changed or restart_for_latest_tags
 
-- name: Ensure Nextcloud AIO mastercontainer service is enabled and started
+- name: Restart optional EuroOffice service when refresh is required
   systemd:
-    name: "{{ nextcloud_aio_container }}"
+    name: "{{ nextcloud_eurooffice_container }}.service"
+    state: restarted
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  register: eurooffice_restart_result
+  failed_when: false
+  when: nextcloud_enable_eurooffice and (any_quadlet_changed or restart_for_latest_tags)
+
+- name: Warn when EuroOffice service restart failed
+  debug:
+    msg: |
+      EuroOffice service restart failed but core Nextcloud services are running.
+      Check details on target host:
+      - systemctl --user status {{ nextcloud_eurooffice_container }}.service -l --no-pager
+      - journalctl --user -xeu {{ nextcloud_eurooffice_container }}.service
+  when:
+    - nextcloud_enable_eurooffice
+    - eurooffice_restart_result is defined
+    - eurooffice_restart_result.failed | default(false)
+
+- name: Ensure optional EuroOffice service is enabled and started
+  systemd:
+    name: "{{ nextcloud_eurooffice_container }}.service"
     enabled: yes
     state: started
     scope: user
   become: true
   become_user: "{{ podman_user }}"
   environment:
-    XDG_RUNTIME_DIR: "/run/user/{{ nextcloud_uid }}"
-  when: not any_quadlet_changed
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  failed_when: false
+  when: any_quadlet_changed or restart_for_latest_tags
 
-# Health check
-- name: Wait for Nextcloud AIO mastercontainer to be reachable
-  command: podman healthcheck run {{ nextcloud_aio_container }}
+- name: Ensure Nextcloud stack target is enabled and started
+  systemd:
+    name: "{{ nextcloud_systemd_target }}"
+    enabled: yes
+    state: started
+    scope: user
   become: true
   become_user: "{{ podman_user }}"
-  register: aio_health
-  retries: 20
-  delay: 5
-  until: aio_health.rc == 0
-  changed_when: false
-  ignore_errors: true
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
 
-# Optional hint for Talk HPB integration (dedicated server)
-- name: Display Talk HPB integration hint
-  debug:
-    msg: |
-      Talk HPB is enabled in vars.
-      Configure Nextcloud Talk app with your dedicated backend URL and shared secret:
-      - URL: {{ nextcloud_talk_hpb_url }}
-      - Secret: {{ nextcloud_talk_hpb_secret }}
-      Use the Nextcloud admin UI (Talk settings) after initial AIO setup.
-  when: nextcloud_enable_talk_hpb | bool
-
-- name: Display Nextcloud AIO deployment result
-  debug:
-    msg: |
-      Nextcloud AIO deployed successfully via Podman Quadlet!
-      - Service: {{ nextcloud_aio_container }}.service
-      - AIO interface: https://{{ nextcloud_aio_interface_bind_ip }}:{{ nextcloud_aio_interface_port }} (access by IP in browser)
-      - Nextcloud domain: https://{{ nextcloud_domain }} (via nginx reverse proxy)
-      - Database: PostgreSQL (managed internally by AIO, official default)
-      - Office: Included in AIO (optional, enabled from AIO interface)
-      - Talk HPB Planned: {{ nextcloud_enable_talk_hpb }}
-      - Manage: systemctl --user status {{ nextcloud_aio_container }}
-      - Health: {% if aio_health.rc == 0 %}PASSED{% else %}FAILED (check logs){% endif %}
-
-# Deploy nginx reverse proxy configuration
-- name: Deploy nginx reverse proxy configuration for Nextcloud AIO
+- name: Deploy nginx reverse proxy configuration
   template:
     src: nextcloud.conf.j2
     dest: "/etc/nginx/conf.d/{{ nextcloud_domain }}.conf"
@@ -211,3 +244,71 @@
     mode: "0644"
   become: true
   notify: Reload nginx
+
+- name: Deploy EuroOffice nginx reverse proxy configuration
+  template:
+    src: nextcloud-eurooffice.conf.j2
+    dest: "/etc/nginx/conf.d/{{ nextcloud_eurooffice_domain }}.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: Reload nginx
+  when: nextcloud_enable_eurooffice
+
+- name: Remove legacy EuroOffice nginx config when domain changed
+  file:
+    path: "/etc/nginx/conf.d/eurooffice.{{ nextcloud_domain }}.conf"
+    state: absent
+  become: true
+  notify: Reload nginx
+  when:
+    - nextcloud_enable_eurooffice
+    - nextcloud_eurooffice_domain != ('eurooffice.' ~ nextcloud_domain)
+
+- name: Configure Nextcloud overwrite protocol via occ
+  command: >
+    podman exec -u www-data {{ nextcloud_container }}
+    php occ config:system:set overwriteprotocol --value=https
+  become: true
+  become_user: "{{ podman_user }}"
+  changed_when: false
+
+- name: Configure Nextcloud overwrite CLI URL via occ
+  command: >
+    podman exec -u www-data {{ nextcloud_container }}
+    php occ config:system:set overwrite.cli.url --value={{ nextcloud_overwritehost }}
+  become: true
+  become_user: "{{ podman_user }}"
+  changed_when: false
+
+- name: Configure WOPI allowlist for EuroOffice subnet
+  command: >
+    podman exec -u www-data {{ nextcloud_container }}
+    php occ config:app:set richdocuments wopi_allowlist --value={{ nextcloud_wopi_allowlist }}
+  become: true
+  become_user: "{{ podman_user }}"
+  changed_when: false
+  when: nextcloud_enable_eurooffice and nextcloud_wopi_allowlist | length > 0
+
+- name: Sync EuroOffice JWT secret to Nextcloud richdocuments
+  shell: |
+    SECRET=$(grep '^JWT_SECRET=' {{ nextcloud_eurooffice_jwt_secret_file }} | cut -d= -f2-)
+    if [ -n "$SECRET" ]; then
+      podman exec -u www-data {{ nextcloud_container }} php occ config:app:set richdocuments jwt_secret --value="$SECRET"
+      podman exec -u www-data {{ nextcloud_container }} php occ config:app:set richdocuments jwt_header --value="{{ nextcloud_eurooffice_jwt_header }}"
+    fi
+  become: true
+  become_user: "{{ podman_user }}"
+  changed_when: false
+  no_log: true
+  when: nextcloud_enable_eurooffice and nextcloud_eurooffice_jwt_enabled | bool
+
+- name: Display Nextcloud deployment result
+  debug:
+    msg: |
+      Nextcloud deployed successfully via Podman Quadlet!
+      - Postgres Quadlet: ~/.config/containers/systemd/{{ nextcloud_postgres_container }}.container
+      - Nextcloud Quadlet: ~/.config/containers/systemd/{{ nextcloud_container }}.container
+      - Service: {{ nextcloud_container }}.service
+      - Domain: https://{{ nextcloud_domain }}

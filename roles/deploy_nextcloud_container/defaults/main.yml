@@ -1,46 +1,57 @@
 ---
-# Nextcloud AIO service deployment configuration
+# Nextcloud service deployment configuration
 
-# Podman user
+# Podman user and service path
 podman_user: "{{ podman_username }}"
-
-# Repository path
 nextcloud_repo_path: "{{ podman_service_dir }}/nextcloud"
-nextcloud_aio_config_dir: "{{ nextcloud_repo_path }}/aio-config"
-nextcloud_aio_datadir: "{{ nextcloud_repo_path }}/data"
+nextcloud_html_dir: "{{ nextcloud_repo_path }}/html"
+nextcloud_env_file: "{{ nextcloud_repo_path }}/nextcloud.env"
+nextcloud_db_dir: "{{ nextcloud_repo_path }}/postgres"
 
 # Nextcloud application settings
 nextcloud_domain: "cloud.kerberos.fassbender.contact"
-nextcloud_upload_max_size: "16G"
+nextcloud_port: 8080
+nextcloud_internal_port: 80
+nextcloud_admin_user: "admin"
+nextcloud_admin_password: "nextcloud"
+nextcloud_admin_email: "admin@kerberos.fassbender.contact"
+nextcloud_overwritehost: "https://{{ nextcloud_domain }}"
+nextcloud_table_prefix: "oc_"
 
-# AIO mastercontainer settings
-nextcloud_aio_image: "ghcr.io/nextcloud-releases/all-in-one:latest"
-nextcloud_aio_container: "nextcloud-aio-mastercontainer"
+# Database configuration
+nextcloud_db_name: "nextcloud"
+nextcloud_db_user: "nextcloud"
+nextcloud_db_password: "nextcloud"
+nextcloud_postgres_container: "nextcloud-postgres"
+nextcloud_container: "nextcloud"
 
-# AIO interface (self-signed, access via IP)
-nextcloud_aio_interface_port: 8081
-nextcloud_aio_interface_bind_ip: "127.0.0.1"
+# Podman network and stack coordination
+nextcloud_network: "nextcloud_net"
+nextcloud_systemd_target: "nextcloud-stack.target"
+nextcloud_dns_server: "192.168.1.249"
 
-# Apache container endpoint used behind your external nginx reverse proxy
-nextcloud_aio_apache_port: 11000
-nextcloud_aio_apache_bind_ip: "127.0.0.1"
+# Images
+nextcloud_image: "docker.io/nextcloud:latest"
+postgres_image: "docker.io/postgres:16-alpine"
+nextcloud_pull_policy: "always"
+nextcloud_restart_on_latest: true
 
-# Optional AIO customizations (official env vars)
-nextcloud_aio_skip_domain_validation: false
-nextcloud_aio_log_level: "warn"
-nextcloud_aio_disable_backup_section: true
-nextcloud_aio_docker_api_version: "1.41"
-nextcloud_aio_network_mode: "bridge"
-nextcloud_aio_security_label_disable: true
-nextcloud_aio_dns_servers:
-  - "192.168.1.118"
-nextcloud_aio_dns_search: null
-nextcloud_aio_additional_env: {}
+# EuroOffice integration
+nextcloud_enable_eurooffice: true
+nextcloud_eurooffice_container: "nextcloud-eurooffice"
+nextcloud_eurooffice_image: "ghcr.io/euro-office/documentserver:latest"
+nextcloud_eurooffice_domain: "eurooffice.{{ nextcloud_domain }}"
+nextcloud_eurooffice_url: "https://{{ nextcloud_eurooffice_domain }}"
+nextcloud_eurooffice_jwt_enabled: true
+nextcloud_eurooffice_jwt_header: "AuthorizationJwt"
+nextcloud_eurooffice_jwt_secret: ""
+nextcloud_eurooffice_jwt_secret_env_var: "NEXTCLOUD_EUROOFFICE_JWT_SECRET"
+nextcloud_eurooffice_jwt_secret_from_env: "{{ lookup('env', nextcloud_eurooffice_jwt_secret_env_var) | default('', true) }}"
+nextcloud_eurooffice_jwt_secret_file: "{{ nextcloud_repo_path }}/eurooffice-jwt.env"
+nextcloud_eurooffice_internal_host_alias_enabled: true
+nextcloud_host_containers_internal_ip: "169.254.1.2"
+nextcloud_wopi_allowlist: "10.89.0.0/24"
 
-# Talk (built-in TURN port if Talk container is enabled via AIO UI)
-nextcloud_aio_talk_port: 3478
-
-# Talk HPB (external dedicated server)
-nextcloud_enable_talk_hpb: false
-nextcloud_talk_hpb_url: "https://talk-backend.kerberos.fassbender.contact"
-nextcloud_talk_hpb_secret: "CHANGE_ME"
+# External Talk server integration
+nextcloud_talk_server_url: ""
+nextcloud_talk_server_public_url: ""

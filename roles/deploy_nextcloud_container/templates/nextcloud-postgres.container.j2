@@ -1,0 +1,27 @@
+# Nextcloud PostgreSQL Database Container
+# This file is managed by Ansible - DO NOT EDIT MANUALLY
+# Role: deploy_nextcloud_container
+
+[Unit]
+Description=Nextcloud PostgreSQL Database
+Documentation=https://www.postgresql.org/docs/
+After={{ nextcloud_network }}.network
+Wants={{ nextcloud_network }}.network
+
+[Container]
+Image={{ postgres_image }}
+ContainerName={{ nextcloud_postgres_container }}
+AutoUpdate=registry
+
+EnvironmentFile={{ nextcloud_env_file }}
+
+Volume={{ nextcloud_db_dir }}:/var/lib/postgresql/data:Z
+ShmSize=128m
+Network={{ nextcloud_network }}.network
+
+[Service]
+Restart=always
+TimeoutStartSec=900
+
+[Install]
+WantedBy={{ nextcloud_systemd_target }}
