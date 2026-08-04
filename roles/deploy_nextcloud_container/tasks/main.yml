@@ -63,20 +63,25 @@
 
 - name: Resolve EuroOffice JWT secret value
   set_fact:
-    nextcloud_eurooffice_jwt_secret_effective: "{{ nextcloud_eurooffice_jwt_secret if (nextcloud_eurooffice_jwt_secret | length > 0) else nextcloud_eurooffice_jwt_secret_from_env }}"
+    nextcloud_eurooffice_jwt_secret_effective: >-
+      {{ nextcloud_eurooffice_jwt_secret if (nextcloud_eurooffice_jwt_secret | default('') | string | length > 0) else nextcloud_eurooffice_jwt_secret_from_env }}
   no_log: true
   when: nextcloud_enable_eurooffice
 
-- name: Validate EuroOffice JWT secret format
-  assert:
-    that:
-      - nextcloud_eurooffice_jwt_secret_effective | length <= 128
-      - nextcloud_eurooffice_jwt_secret_effective is regex('^[a-zA-Z0-9._-]*$')
-    fail_msg: "EuroOffice JWT secret must be max 128 chars and contain only alphanumeric, dots, underscores, or dashes (no spaces or special chars)"
-  no_log: true
+- name: Generate a default EuroOffice JWT secret when no valid secret is configured
+  set_fact:
+    nextcloud_eurooffice_jwt_secret_effective: "{{ lookup('password', '/dev/null length=32 chars=ascii_letters,digits') }}"
   when:
     - nextcloud_enable_eurooffice
-    - nextcloud_eurooffice_jwt_secret_effective | length > 0
+    - (nextcloud_eurooffice_jwt_secret_effective | default('') | string | length) != 32
+
+- name: Validate EuroOffice JWT secret length
+  assert:
+    that:
+      - (nextcloud_eurooffice_jwt_secret_effective | default('') | string | length) == 32
+    fail_msg: "EuroOffice JWT secret must be exactly 32 characters long"
+  no_log: true
+  when: nextcloud_enable_eurooffice
 
 - name: Write EuroOffice JWT secret env file
   copy:
@@ -84,7 +89,8 @@
     owner: "{{ podman_user }}"
     group: "{{ podman_user }}"
     mode: "0600"
-    content: "{% if nextcloud_eurooffice_jwt_secret_effective | length > 0 %}JWT_SECRET={{ nextcloud_eurooffice_jwt_secret_effective }}{% else %}# No JWT secret configured{% endif %}"
+    content: |
+      JWT_SECRET={{ nextcloud_eurooffice_jwt_secret_effective }}
   become: true
   register: eurooffice_secret_env_deployed
   no_log: true
@@ -197,6 +203,8 @@
     XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
   register: eurooffice_restart_result
   failed_when: false
+  async: 300
+  poll: 0
   when: nextcloud_enable_eurooffice and (any_quadlet_changed or restart_for_latest_tags)
 
 - name: Warn when EuroOffice service restart failed
@@ -282,21 +290,30 @@
   become_user: "{{ podman_user }}"
   changed_when: false
 
-- name: Configure WOPI allowlist for EuroOffice subnet
-  command: >
-    podman exec -u www-data {{ nextcloud_container }}
-    php occ config:app:set richdocuments wopi_allowlist --value={{ nextcloud_wopi_allowlist }}
+- name: Ensure EuroOffice connector app is installed and enabled
+  shell: >
+    podman exec -u www-data {{ nextcloud_container }} php occ app:enable {{ nextcloud_eurooffice_nextcloud_app }} ||
+    podman exec -u www-data {{ nextcloud_container }} php occ app:install {{ nextcloud_eurooffice_nextcloud_app }}
   become: true
   become_user: "{{ podman_user }}"
   changed_when: false
-  when: nextcloud_enable_eurooffice and nextcloud_wopi_allowlist | length > 0
+  when: nextcloud_enable_eurooffice
 
-- name: Sync EuroOffice JWT secret to Nextcloud richdocuments
+- name: Configure EuroOffice connector document server URL
+  command: >
+    podman exec -u www-data {{ nextcloud_container }}
+    php occ config:app:set {{ nextcloud_eurooffice_nextcloud_app }} DocumentServerUrl --value={{ nextcloud_eurooffice_url }}
+  become: true
+  become_user: "{{ podman_user }}"
+  changed_when: false
+  when: nextcloud_enable_eurooffice
+
+- name: Sync EuroOffice JWT secret to Nextcloud connector app
   shell: |
     SECRET=$(grep '^JWT_SECRET=' {{ nextcloud_eurooffice_jwt_secret_file }} | cut -d= -f2-)
     if [ -n "$SECRET" ]; then
-      podman exec -u www-data {{ nextcloud_container }} php occ config:app:set richdocuments jwt_secret --value="$SECRET"
-      podman exec -u www-data {{ nextcloud_container }} php occ config:app:set richdocuments jwt_header --value="{{ nextcloud_eurooffice_jwt_header }}"
+      podman exec -u www-data {{ nextcloud_container }} php occ config:app:set {{ nextcloud_eurooffice_nextcloud_app }} jwt_secret --value="$SECRET"
+      podman exec -u www-data {{ nextcloud_container }} php occ config:app:set {{ nextcloud_eurooffice_nextcloud_app }} jwt_header --value="{{ nextcloud_eurooffice_jwt_header }}"
     fi
   become: true
   become_user: "{{ podman_user }}"

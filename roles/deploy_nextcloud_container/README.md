@@ -32,12 +32,12 @@ Nextcloud is deployed with PostgreSQL, which is recommended over SQLite and more
 The role uses these defaults from `roles/deploy_nextcloud_container/defaults/main.yml`:
 
 ```yaml
-nextcloud_domain: "nextcloud.kerberos.fassbender.contact"
+nextcloud_domain: "cloud.kerberos.bitsnbyt.es"
 nextcloud_port: 8080
 nextcloud_internal_port: 80
 nextcloud_admin_user: "admin"
 nextcloud_admin_password: "nextcloud"
-nextcloud_admin_email: "admin@kerberos.fassbender.contact"
+nextcloud_admin_email: "admin@kerberos.bitsnbyt.es"
 nextcloud_overwritehost: "https://{{ nextcloud_domain }}"
 nextcloud_table_prefix: "oc_"
 
@@ -56,6 +56,7 @@ Use `nextcloud_enable_eurooffice: true` to deploy EuroOffice alongside Nextcloud
 ```yaml
 nextcloud_enable_eurooffice: true
 nextcloud_eurooffice_image: "ghcr.io/euro-office/documentserver:latest"
+nextcloud_eurooffice_domain: "eurooffice.kerberos.bitsnbyt.es"
 ```
 
 ### EuroOffice JWT secret (without committing secrets)

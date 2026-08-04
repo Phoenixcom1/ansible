@@ -9,12 +9,12 @@ nextcloud_env_file: "{{ nextcloud_repo_path }}/nextcloud.env"
 nextcloud_db_dir: "{{ nextcloud_repo_path }}/postgres"
 
 # Nextcloud application settings
-nextcloud_domain: "cloud.kerberos.fassbender.contact"
+nextcloud_domain: "cloud.kerberos.bitsnbyt.es"
 nextcloud_port: 8080
 nextcloud_internal_port: 80
 nextcloud_admin_user: "admin"
 nextcloud_admin_password: "nextcloud"
-nextcloud_admin_email: "admin@kerberos.fassbender.contact"
+nextcloud_admin_email: "admin@kerberos.bitsnbyt.es"
 nextcloud_overwritehost: "https://{{ nextcloud_domain }}"
 nextcloud_table_prefix: "oc_"
 
@@ -28,7 +28,7 @@ nextcloud_container: "nextcloud"
 # Podman network and stack coordination
 nextcloud_network: "nextcloud_net"
 nextcloud_systemd_target: "nextcloud-stack.target"
-nextcloud_dns_server: "192.168.1.249"
+nextcloud_dns_server: "{{ dns_primary_nameserver }}"
 
 # Images
 nextcloud_image: "docker.io/nextcloud:latest"
@@ -40,10 +40,11 @@ nextcloud_restart_on_latest: true
 nextcloud_enable_eurooffice: true
 nextcloud_eurooffice_container: "nextcloud-eurooffice"
 nextcloud_eurooffice_image: "ghcr.io/euro-office/documentserver:latest"
-nextcloud_eurooffice_domain: "eurooffice.{{ nextcloud_domain }}"
+nextcloud_eurooffice_domain: "eurooffice.kerberos.bitsnbyt.es"
 nextcloud_eurooffice_url: "https://{{ nextcloud_eurooffice_domain }}"
+nextcloud_eurooffice_nextcloud_app: "eurooffice"
 nextcloud_eurooffice_jwt_enabled: true
-nextcloud_eurooffice_jwt_header: "AuthorizationJwt"
+nextcloud_eurooffice_jwt_header: "Authorization"
 nextcloud_eurooffice_jwt_secret: ""
 nextcloud_eurooffice_jwt_secret_env_var: "NEXTCLOUD_EUROOFFICE_JWT_SECRET"
 nextcloud_eurooffice_jwt_secret_from_env: "{{ lookup('env', nextcloud_eurooffice_jwt_secret_env_var) | default('', true) }}"
