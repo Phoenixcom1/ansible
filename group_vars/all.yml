@@ -9,3 +9,14 @@ podman_service_dir: /opt/podman
 # Wildcard certificate locations deployed by your firewall
 ssl_cert: "/etc/ssl/wildcard/kerberos.fassbender.contact/fullchain.pem"
 ssl_key: "/etc/ssl/wildcard/kerberos.fassbender.contact/key.pem"
+
+# Global DNS configuration for hosts and containers
+# Primary/secondary/fallback DNS servers can be overridden per environment.
+dns_primary_nameserver: "192.168.1.249"
+dns_secondary_nameserver: "1.1.1.1"
+dns_fallback_nameservers:
+  - "8.8.8.8"
+  - "8.8.4.4"
+dns_search_domains:
+  - "kerberos.bitsnbyt.es"
+dns_nameservers_effective: "{{ [dns_primary_nameserver, dns_secondary_nameserver] + dns_fallback_nameservers }}"

@@ -56,6 +56,9 @@ sudo dnf install ansible
   - `git lfs checkout`
 - Have access to external services via .netrc
 - Have your private ssh key on hand which mathces the public key in `ansible_bootstrap.sh`
+- If you are using macOS and your key is password-protected, add it to your SSH agent before running Ansible:
+  - `ssh-add ~/.ssh/id_ed25519_priv`
+  - or `ssh-add --apple-use-keychain ~/.ssh/id_ed25519_priv`
 - Know the current IP of the machine you want to stage
 
 ## Run playbook

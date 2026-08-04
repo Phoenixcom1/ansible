@@ -133,11 +133,14 @@
     state: started
   become: true
 
-- name: Enable SELinux boolean to allow proxy network connections (RedHat family)
+- name: Enable SELinux booleans for reverse proxy network access (RedHat family)
   ansible.builtin.seboolean:
-    name: httpd_can_network_connect
+    name: "{{ item }}"
     state: true
     persistent: true
+  loop:
+    - httpd_can_network_connect
+    - httpd_can_network_relay
   when: ansible_facts['os_family'] == 'RedHat'
   become: true
 
@@ -156,13 +159,25 @@
   when: ansible_facts['os_family'] == 'RedHat'
   become: true
 
-- name: Open HTTP and HTTPS in firewalld (RedHat family)
+- name: Check whether HTTP and HTTPS services are already open in firewalld (RedHat family)
   ansible.builtin.command:
-    cmd: "firewall-cmd --permanent --add-service={{ item }}"
+    cmd: "firewall-cmd --permanent --query-service={{ item }}"
+  register: nginx_firewall_service_checks
+  changed_when: false
+  failed_when: false
   loop:
     - http
     - https
   when: ansible_facts['os_family'] == 'RedHat'
+  become: true
+
+- name: Open HTTP and HTTPS in firewalld (RedHat family)
+  ansible.builtin.command:
+    cmd: "firewall-cmd --permanent --add-service={{ item.item }}"
+  loop: "{{ nginx_firewall_service_checks.results }}"
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - item.rc != 0
   become: true
 
 - name: Reload firewalld to apply permanent rules (RedHat family)
