@@ -61,6 +61,16 @@
     mode: "0755"
   become: true
 
+- name: Deploy Nextcloud Redis configuration
+  template:
+    src: nextcloud-redis.config.php.j2
+    dest: "{{ nextcloud_repo_path }}/nextcloud-redis.config.php"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: redis_config_deployed
+
 - name: Resolve EuroOffice JWT secret value
   set_fact:
     nextcloud_eurooffice_jwt_secret_effective: >-
@@ -115,6 +125,16 @@
     mode: "0644"
   become: true
   register: postgres_quadlet_deployed
+
+- name: Deploy Nextcloud Redis Quadlet container file
+  template:
+    src: nextcloud-redis.container.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/{{ nextcloud_redis_container }}.container"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: redis_quadlet_deployed
 
 - name: Deploy Nextcloud Quadlet container file
   template:
@@ -172,7 +192,7 @@
 
 - name: Check if any Quadlet changed
   set_fact:
-    any_quadlet_changed: "{{ network_quadlet_deployed.changed or postgres_quadlet_deployed.changed or nextcloud_quadlet_deployed.changed or stack_target_deployed.changed or (eurooffice_quadlet_deployed.changed if nextcloud_enable_eurooffice else False) or (eurooffice_secret_env_deployed.changed if eurooffice_secret_env_deployed is defined else False) }}"
+    any_quadlet_changed: "{{ network_quadlet_deployed.changed or postgres_quadlet_deployed.changed or redis_quadlet_deployed.changed or nextcloud_quadlet_deployed.changed or stack_target_deployed.changed or redis_config_deployed.changed or (eurooffice_quadlet_deployed.changed if nextcloud_enable_eurooffice else False) or (eurooffice_secret_env_deployed.changed if eurooffice_secret_env_deployed is defined else False) }}"
 
 - name: Check if latest-tag restart is required
   set_fact:
@@ -189,6 +209,7 @@
     XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
   loop:
     - "{{ nextcloud_postgres_container }}.service"
+    - "{{ nextcloud_redis_container }}.service"
     - "{{ nextcloud_container }}.service"
   when: any_quadlet_changed or restart_for_latest_tags
 
@@ -289,6 +310,39 @@
   become: true
   become_user: "{{ podman_user }}"
   changed_when: false
+
+- name: Configure trusted reverse proxies
+  command: >
+    podman exec -u www-data {{ nextcloud_container }}
+    php occ config:system:set trusted_proxies --type=json --value='{{ nextcloud_trusted_proxies | to_json }}'
+  become: true
+  become_user: "{{ podman_user }}"
+  changed_when: false
+
+- name: Configure Nextcloud maintenance window
+  command: >
+    podman exec -u www-data {{ nextcloud_container }}
+    php occ config:system:set maintenance_window_start --type=integer --value={{ nextcloud_maintenance_window_start }}
+  become: true
+  become_user: "{{ podman_user }}"
+  changed_when: false
+
+- name: Configure default phone region
+  command: >
+    podman exec -u www-data {{ nextcloud_container }}
+    php occ config:system:set default_phone_region --value={{ nextcloud_default_phone_region }}
+  become: true
+  become_user: "{{ podman_user }}"
+  changed_when: false
+
+- name: Run Nextcloud MIME type migrations
+  command: >
+    podman exec -u www-data {{ nextcloud_container }}
+    php occ maintenance:repair --include-expensive
+  become: true
+  become_user: "{{ podman_user }}"
+  changed_when: false
+  when: nextcloud_run_expensive_repair | bool
 
 - name: Ensure EuroOffice connector app is installed and enabled
   shell: >

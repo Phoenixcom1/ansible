@@ -17,6 +17,15 @@ nextcloud_admin_password: "nextcloud"
 nextcloud_admin_email: "admin@kerberos.bitsnbyt.es"
 nextcloud_overwritehost: "https://{{ nextcloud_domain }}"
 nextcloud_table_prefix: "oc_"
+# Podman network addresses allowed to supply forwarded proxy headers.
+nextcloud_trusted_proxies:
+  - "10.89.0.0/16"
+# Local hour when Nextcloud may run its daily maintenance jobs.
+nextcloud_maintenance_window_start: 1
+# Country code used to interpret phone numbers without an international prefix.
+nextcloud_default_phone_region: "DE"
+# Run slower, migration-related Nextcloud repair tasks during deployment.
+nextcloud_run_expensive_repair: true
 
 # Database configuration
 nextcloud_db_name: "nextcloud"
@@ -24,11 +33,14 @@ nextcloud_db_user: "nextcloud"
 nextcloud_db_password: "nextcloud"
 nextcloud_postgres_container: "nextcloud-postgres"
 nextcloud_container: "nextcloud"
+nextcloud_redis_container: "nextcloud-redis"
+nextcloud_redis_image: "docker.io/redis:7-alpine"
 
 # Podman network and stack coordination
 nextcloud_network: "nextcloud_net"
 nextcloud_systemd_target: "nextcloud-stack.target"
 nextcloud_dns_server: "{{ dns_primary_nameserver }}"
+nextcloud_hsts_max_age: 15552000
 
 # Images
 nextcloud_image: "docker.io/nextcloud:latest"

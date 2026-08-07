@@ -1,0 +1,21 @@
+# Nextcloud Redis Container
+# This file is managed by Ansible - DO NOT EDIT MANUALLY
+
+[Unit]
+Description=Nextcloud Redis Cache
+After={{ nextcloud_network }}.network
+Wants={{ nextcloud_network }}.network
+
+[Container]
+Image={{ nextcloud_redis_image }}
+ContainerName={{ nextcloud_redis_container }}
+AutoUpdate=registry
+Pull={{ nextcloud_pull_policy }}
+Network={{ nextcloud_network }}.network
+
+[Service]
+Restart=always
+TimeoutStartSec=900
+
+[Install]
+WantedBy={{ nextcloud_systemd_target }}

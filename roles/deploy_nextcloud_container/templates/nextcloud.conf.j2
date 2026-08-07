@@ -12,6 +12,7 @@ server {
 
     ssl_certificate     {{ ssl_cert }};
     ssl_certificate_key {{ ssl_key }};
+    add_header Strict-Transport-Security "max-age={{ nextcloud_hsts_max_age }}" always;
 
     # Nextcloud reverse proxy
     location / {
