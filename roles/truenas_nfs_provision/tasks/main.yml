@@ -1,0 +1,193 @@
+---
+- name: Validate TrueNAS API configuration
+  assert:
+    that:
+      - truenas_api_url | length > 0
+      - truenas_api_token | length > 0
+    fail_msg: >-
+      Define truenas_api_url and provide truenas_api_token, preferably through
+      the TRUENAS_API_TOKEN environment variable or Ansible Vault.
+  when: truenas_nfs_provision_shares | length > 0
+
+- name: Get podman user identity for TrueNAS dataset permissions
+  getent:
+    database: passwd
+    key: "{{ podman_user }}"
+  register: truenas_nfs_podman_user
+  changed_when: false
+  when:
+    - truenas_nfs_provision_shares | length > 0
+    - truenas_nfs_manage_dataset_permissions | bool
+
+- name: Set podman user identity for TrueNAS dataset permissions
+  set_fact:
+    truenas_nfs_owner_uid: "{{ truenas_nfs_podman_user.ansible_facts.getent_passwd[podman_user][1] }}"
+    truenas_nfs_owner_gid: "{{ truenas_nfs_podman_user.ansible_facts.getent_passwd[podman_user][2] }}"
+  when:
+    - truenas_nfs_provision_shares | length > 0
+    - truenas_nfs_manage_dataset_permissions | bool
+
+- name: Look up requested TrueNAS datasets
+  uri:
+    url: "{{ truenas_api_url }}/api/v2.0/pool/dataset/id/{{ item.dataset | replace('/', '%2F') }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_token }}"
+    validate_certs: "{{ truenas_api_validate_certs }}"
+    status_code: [200, 404]
+    return_content: true
+  loop: "{{ truenas_nfs_provision_shares }}"
+  loop_control:
+    label: "{{ item.dataset }}"
+  register: truenas_dataset_lookup
+  no_log: true
+
+- name: Look up requested TrueNAS dataset parents
+  uri:
+    url: "{{ truenas_api_url }}/api/v2.0/pool/dataset/id/{{ item | replace('/', '%2F') }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_token }}"
+    validate_certs: "{{ truenas_api_validate_certs }}"
+    status_code: [200, 404]
+    return_content: true
+  loop: "{{ truenas_nfs_dataset_parents }}"
+  loop_control:
+    label: "{{ item }}"
+  register: truenas_dataset_parent_lookup
+  no_log: true
+
+- name: Create missing TrueNAS dataset parents
+  uri:
+    url: "{{ truenas_api_url }}/api/v2.0/pool/dataset"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_token }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      name: "{{ item.item }}"
+      type: FILESYSTEM
+      share_type: GENERIC
+    validate_certs: "{{ truenas_api_validate_certs }}"
+    status_code: [200]
+  loop: "{{ truenas_dataset_parent_lookup.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.status == 404
+  no_log: true
+
+- name: Create missing TrueNAS datasets
+  uri:
+    url: "{{ truenas_api_url }}/api/v2.0/pool/dataset"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_token }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      name: "{{ item.item.dataset }}"
+      type: FILESYSTEM
+      share_type: GENERIC
+    validate_certs: "{{ truenas_api_validate_certs }}"
+    status_code: [200]
+  loop: "{{ truenas_dataset_lookup.results }}"
+  loop_control:
+    label: "{{ item.item.dataset }}"
+  when: item.status == 404
+  no_log: true
+
+- name: Look up existing TrueNAS NFS shares
+  uri:
+    url: "{{ truenas_api_url }}/api/v2.0/sharing/nfs"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_token }}"
+    validate_certs: "{{ truenas_api_validate_certs }}"
+    status_code: [200]
+    return_content: true
+  register: truenas_nfs_share_lookup
+  when: truenas_nfs_provision_shares | length > 0
+  no_log: true
+
+- name: Create missing TrueNAS NFS shares
+  uri:
+    url: "{{ truenas_api_url }}/api/v2.0/sharing/nfs"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_token }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      path: "{{ item.export_path }}"
+      hosts: "{{ item.allowed_hosts | default([static_ip]) }}"
+      comment: "Managed by Ansible: {{ item.dataset }}"
+      enabled: true
+    validate_certs: "{{ truenas_api_validate_certs }}"
+    status_code: [200]
+  loop: "{{ truenas_nfs_provision_shares }}"
+  loop_control:
+    label: "{{ item.export_path }}"
+  when: >-
+    truenas_nfs_share_lookup.json
+    | selectattr('path', 'equalto', item.export_path)
+    | list
+    | length == 0
+  no_log: true
+
+# TODO: Use version-verified TrueNAS read endpoints to skip unchanged setperm
+# calls and NFS service operations. REST read endpoints vary by release.
+- name: Set managed TrueNAS dataset ownership and permissions
+  uri:
+    url: "{{ truenas_api_url }}/api/v2.0/filesystem/setperm"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_token }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      path: "{{ item.export_path }}"
+      uid: "{{ item.owner_uid | default(truenas_nfs_owner_uid) | int }}"
+      gid: "{{ item.owner_gid | default(truenas_nfs_owner_gid) | int }}"
+      mode: "{{ item.mode | default(truenas_nfs_dataset_mode) }}"
+      options:
+        recursive: false
+        traverse: false
+        stripacl: true
+    validate_certs: "{{ truenas_api_validate_certs }}"
+    status_code: [200]
+  loop: "{{ truenas_nfs_provision_shares }}"
+  loop_control:
+    label: "{{ item.export_path }}"
+  no_log: true
+  when: truenas_nfs_manage_dataset_permissions | bool
+
+- name: Enable the TrueNAS NFS service at boot
+  uri:
+    url: "{{ truenas_api_url }}/api/v2.0/service/id/nfs"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ truenas_api_token }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      enable: true
+    validate_certs: "{{ truenas_api_validate_certs }}"
+    status_code: [200]
+  when: truenas_nfs_provision_shares | length > 0
+  no_log: true
+
+- name: Start the TrueNAS NFS service
+  uri:
+    url: "{{ truenas_api_url }}/api/v2.0/service/start"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_token }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      service: nfs
+    validate_certs: "{{ truenas_api_validate_certs }}"
+    status_code: [200]
+  when: truenas_nfs_provision_shares | length > 0
+  no_log: true

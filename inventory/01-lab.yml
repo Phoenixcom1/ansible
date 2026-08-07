@@ -29,6 +29,17 @@ all:
       local_username: "podman_vm"
       ssl_cert: "/etc/ssl/wildcard/kerberos.bitsnbyt.es/fullchain.pem"
       ssl_key: "/etc/ssl/wildcard/kerberos.bitsnbyt.es/key.pem"
+      # The NFS hostname follows the Nextcloud customer DNS domain. Store the API token in
+      # the ignored companion inventory or provide TRUENAS_API_TOKEN.
+      truenas_nfs_server: "truenas.{{ dns_search_domains | first }}"
+      truenas_nfs_mounts:
+        - dataset: "tank/apps/nextcloud-data"
+          export_path: "/mnt/tank/apps/nextcloud-data"
+          path: "/srv/containers/nextcloud-data"
+      # Use the dedicated NFS dataset for Nextcloud data.
+      nextcloud_data_external: true
+      nextcloud_data_check_container_write: true
+      nextcloud_data_dir: "/srv/containers/nextcloud-data"
       #vlan_id: 107
       #vlan_ip_address: "" # Leave empty; IP will be on the bridge instead
       #bridge_name: "br-vlan107" # Host bridge on VLAN 107
@@ -37,4 +48,4 @@ all:
   vars:
     ansible_user: ansible
     gateway_lab: 192.168.1.1
-    ansible_private_key_file: ~/.ssh/ansible_staging_key
+    ansible_private_key_file: ~/.ssh/id_ed25519_priv

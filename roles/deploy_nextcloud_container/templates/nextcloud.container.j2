@@ -7,6 +7,9 @@ Description=Nextcloud Web Application
 Documentation=https://nextcloud.com/
 After={{ nextcloud_network }}.network {{ nextcloud_postgres_container }}.service {{ nextcloud_redis_container }}.service
 Wants={{ nextcloud_network }}.network {{ nextcloud_postgres_container }}.service {{ nextcloud_redis_container }}.service
+{% if nextcloud_data_external | bool %}
+RequiresMountsFor={{ nextcloud_data_dir }}
+{% endif %}
 
 [Container]
 Image={{ nextcloud_image }}
@@ -17,6 +20,11 @@ Pull={{ nextcloud_pull_policy }}
 EnvironmentFile={{ nextcloud_env_file }}
 
 Volume={{ nextcloud_html_dir }}:/var/www/html:Z
+{% if nextcloud_data_external | bool %}
+Volume={{ nextcloud_data_dir }}:/var/www/html/data
+UserNS={{ nextcloud_external_data_userns }}
+AddCapability=CAP_NET_BIND_SERVICE
+{% endif %}
 Volume={{ nextcloud_repo_path }}/nextcloud-redis.config.php:/var/www/html/config/redis.config.php:Z
 
 Network={{ nextcloud_network }}.network

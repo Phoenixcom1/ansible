@@ -35,4 +35,6 @@
     #- deploy_openwebui_container
     #- deploy_adguardhome_container
     #- deploy_adguardhome_sync_container
+    - truenas_nfs_provision
+    - truenas_nfs_client
     - deploy_nextcloud_container

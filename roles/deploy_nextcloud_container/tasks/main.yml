@@ -14,6 +14,15 @@
     podman_user_gid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][2] }}"
   when: podman_user in podman_user_info.ansible_facts.getent_passwd
 
+- name: Validate Nextcloud database password
+  assert:
+    that:
+      - nextcloud_db_password | string | length > 0
+    fail_msg: >-
+      Provide nextcloud_db_password through an ignored vaulted inventory or the
+      NEXTCLOUD_DB_PASSWORD environment variable.
+  no_log: true
+
 - name: Create Nextcloud directories
   file:
     path: "{{ item }}"
@@ -175,6 +184,49 @@
     mode: "0644"
   become: true
   register: stack_target_deployed
+
+- name: Verify the external Nextcloud data directory is an NFS mount
+  command:
+    argv:
+      - findmnt
+      - --noheadings
+      - --output
+      - FSTYPE
+      - --target
+      - "{{ nextcloud_data_dir }}"
+  register: nextcloud_external_data_mount
+  changed_when: false
+  when: nextcloud_data_external | bool
+
+- name: Require an NFS mount for external Nextcloud data
+  assert:
+    that: nextcloud_external_data_mount.stdout | trim is match('^nfs')
+    fail_msg: "{{ nextcloud_data_dir }} must be an active NFS mount before Nextcloud uses it."
+  when: nextcloud_data_external | bool
+
+- name: Verify Nextcloud container can write to external data
+  command:
+    argv:
+      - podman
+      - run
+      - --rm
+      - --userns
+      - "{{ nextcloud_external_data_userns }}"
+      - --user
+      - www-data
+      - --entrypoint
+      - /bin/sh
+      - --volume
+      - "{{ nextcloud_data_dir }}:/var/www/html/data"
+      - "{{ nextcloud_image }}"
+      - -c
+      - >-
+        touch /var/www/html/data/.ansible-nextcloud-container-write-test &&
+        rm /var/www/html/data/.ansible-nextcloud-container-write-test
+  become: true
+  become_user: "{{ podman_user }}"
+  changed_when: false
+  when: nextcloud_data_check_container_write | bool
 
 - name: Enable lingering for podman user
   command: loginctl enable-linger {{ podman_user }}

@@ -1,145 +1,183 @@
 # Nextcloud Container Role
 
-Deploys Nextcloud on a Fedora-compatible Podman host using Podman Quadlets and PostgreSQL.
+Deploys Nextcloud, PostgreSQL, and Redis on a Fedora-compatible host with rootless Podman Quadlets. Nginx on the host terminates TLS and proxies to Nextcloud on loopback.
 
-## Features
+## Components
 
-- Nextcloud web application in a rootless Podman container
-- PostgreSQL database container for recommended production deployment
-- Separate data, config, apps, and themes volumes
-- Optional EuroOffice integration
-- Support for external Talk server setup via separate host
-- Modern Podman Quadlet + systemd integration
+- `nextcloud-postgres.service`: PostgreSQL database
+- `nextcloud-redis.service`: Redis cache and transactional file locking
+- `nextcloud.service`: Nextcloud web application
+- `nextcloud-eurooffice.service`: optional EuroOffice document server
+- `nextcloud-stack.target`: systemd user target for the stack
 
-## Architecture
+The Nextcloud service listens on `127.0.0.1:{{ nextcloud_port }}`. The host reverse proxy publishes the configured Nextcloud domain.
 
-This role creates:
+## Storage
 
-- `nextcloud-postgres.container` – PostgreSQL database
-- `nextcloud.container` – Nextcloud web app
-- `nextcloud.network` – Podman network for the stack
-
-The role uses Podman Quadlets for clean systemd-managed container deployment.
-
-The stack is published to `127.0.0.1:{{ nextcloud_port }}` by default, so reverse proxy configuration can be applied from the host.
-
-## Recommended database
-
-Nextcloud is deployed with PostgreSQL, which is recommended over SQLite and more suitable than MariaDB for a medium-sized home deployment.
-
-## Variables
-
-The role uses these defaults from `roles/deploy_nextcloud_container/defaults/main.yml`:
+By default, Nextcloud stores data in `{{ nextcloud_html_dir }}/data`. A host can instead use a dedicated NFS mount:
 
 ```yaml
-nextcloud_domain: "cloud.kerberos.bitsnbyt.es"
-nextcloud_port: 8080
-nextcloud_internal_port: 80
-nextcloud_admin_user: "admin"
-nextcloud_admin_password: "nextcloud"
-nextcloud_admin_email: "admin@kerberos.bitsnbyt.es"
-nextcloud_overwritehost: "https://{{ nextcloud_domain }}"
-nextcloud_table_prefix: "oc_"
-
-nextcloud_db_name: "nextcloud"
-nextcloud_db_user: "nextcloud"
-nextcloud_db_password: "nextcloud"
-
-nextcloud_image: "docker.io/nextcloud:29-fpm"
-postgres_image: "docker.io/postgres:16-alpine"
+nextcloud_data_external: true
+nextcloud_data_dir: "/srv/containers/nextcloud-data"
 ```
 
-### EuroOffice integration
+When external data is enabled, the Quadlet requires the mount before startup and mounts it at `/var/www/html/data`.
 
-Use `nextcloud_enable_eurooffice: true` to deploy EuroOffice alongside Nextcloud.
+The container runs rootless as `podman`, while the Nextcloud process runs as `www-data` (`33:33`). For NFS-backed data, the role uses:
+
+```yaml
+nextcloud_external_data_userns: "keep-id:uid=33,gid=33"
+```
+
+This maps container `www-data` to the host `podman` identity. The Quadlet also grants only `CAP_NET_BIND_SERVICE`, allowing Apache to bind its internal port `80` under this mapping.
+
+Set `nextcloud_data_check_container_write: true` to run a disposable `www-data` container that verifies write access to the external data mount before the stack starts.
+
+## TrueNAS NFS Storage
+
+`fedora_base.yml` runs these roles before `deploy_nextcloud_container`:
+
+1. `truenas_nfs_provision`: manages datasets, NFS exports, and dataset permissions through the TrueNAS REST API.
+2. `truenas_nfs_client`: installs NFS utilities and mounts the declared exports on the Fedora host.
+
+Define the storage per host or customer inventory:
+
+```yaml
+truenas_nfs_server: "truenas.{{ dns_search_domains | first }}"
+truenas_nfs_mounts:
+  - dataset: "tank/apps/nextcloud-data"
+    export_path: "/mnt/tank/apps/nextcloud-data"
+    path: "/srv/containers/nextcloud-data"
+
+nextcloud_data_external: true
+nextcloud_data_dir: "/srv/containers/nextcloud-data"
+```
+
+The API token needs permission to create datasets and NFS shares, manage the NFS service, and set filesystem attributes. For dedicated container-data datasets, the provisioner sets the dataset owner/group to the Fedora `podman` UID/GID and mode `0770`. No matching TrueNAS user is required because NFS authorizes the numeric IDs supplied by the Fedora host.
+
+Keep `truenas_api_token` in an ignored companion inventory such as `inventory/01-lab.secrets.yml`, or supply it through `TRUENAS_API_TOKEN`. Add this pattern to `.gitignore`:
+
+```gitignore
+inventory/*.secrets.yml
+```
+
+The companion inventory contains the secrets for the matching host. The
+`nextcloud_db_password` value is used to initialize a new PostgreSQL data
+directory; alternatively, provide it through `NEXTCLOUD_DB_PASSWORD` on the
+Ansible controller.
+
+```yaml
+all:
+  hosts:
+    podman-vm-pve0:
+      truenas_api_token: !vault |
+        $ANSIBLE_VAULT;1.2;AES256;lab
+        ...
+      nextcloud_db_password: !vault |
+        $ANSIBLE_VAULT;1.2;AES256;lab
+        ...
+```
+
+Generate the vaulted value without exposing it in shell history:
+
+```bash
+ansible-vault encrypt_string --vault-id lab@prompt \
+  --name nextcloud_db_password --prompt
+```
+
+Enter the existing `lab` vault password when prompted, then enter the database
+password to encrypt. Copy the resulting `nextcloud_db_password` block into
+`inventory/01-lab.secrets.yml` under the target host.
+
+Deploy with both inventory files:
+
+```bash
+ansible-playbook --vault-id lab@prompt \
+  -i inventory/01-lab.yml \
+  -i inventory/01-lab.secrets.yml \
+  fedora_base.yml \
+  --limit podman-vm-pve0
+```
+
+## Redis
+
+Redis provides the distributed cache and transactional file locking configuration mounted into Nextcloud as `redis.config.php`. It is internal to `nextcloud_net` and has no published host port.
+
+Container images use `Pull=missing` by default. This avoids Docker Hub manifest requests on every restart. Pull image updates explicitly or use Podman auto-update. If Docker Hub rate limits unauthenticated pulls, authenticate as the rootless service user:
+
+```bash
+sudo -iu podman podman login docker.io
+```
+
+## Credentials
+
+`nextcloud_admin_password` is only used during the first Nextcloud installation.
+Change that initial password when signing in for the first time. The database
+password must be supplied as `nextcloud_db_password` through the ignored vaulted
+inventory shown above, or as `NEXTCLOUD_DB_PASSWORD` on the Ansible controller.
+
+### Rotate the database password
+
+Changing `nextcloud_db_password` alone does not rotate an existing PostgreSQL
+role. Back up the database first, then update the password in Nextcloud while it
+can still connect and immediately update PostgreSQL interactively:
+
+```bash
+sudo -u podman XDG_RUNTIME_DIR=/run/user/$(id -u podman) \
+  podman exec -u www-data nextcloud php occ config:system:set dbpassword --value='NEW_PASSWORD'
+
+sudo -u podman XDG_RUNTIME_DIR=/run/user/$(id -u podman) \
+  podman exec -it --user postgres nextcloud-postgres \
+  psql -d postgres -c '\password nextcloud'
+```
+
+Enter the same new value when prompted, update `nextcloud_db_password` in the
+vaulted inventory, and run the playbook. Do not leave `NEW_PASSWORD` in shell
+history; use a securely generated value.
+
+## EuroOffice
+
+Enable EuroOffice with:
 
 ```yaml
 nextcloud_enable_eurooffice: true
 nextcloud_eurooffice_image: "ghcr.io/euro-office/documentserver:latest"
-nextcloud_eurooffice_domain: "eurooffice.kerberos.bitsnbyt.es"
+nextcloud_eurooffice_domain: "eurooffice.example.com"
 ```
 
-### EuroOffice JWT secret (without committing secrets)
+The role enables the `eurooffice` Nextcloud connector and configures its `DocumentServerUrl`, `jwt_secret`, and `jwt_header` settings. JWT uses the `Authorization` header. Supply a persistent 32-character secret with `nextcloud_eurooffice_jwt_secret` or `NEXTCLOUD_EUROOFFICE_JWT_SECRET`; otherwise a new secret is generated during deployment.
 
-EuroOffice enables JWT by default. This role supports loading the JWT secret from an environment variable on the Ansible controller, so no secret needs to be committed to the repository.
-
-Secret format restrictions (for safe parsing):
-- Maximum 128 characters
-- Alphanumeric characters, dots (.), underscores (_), and dashes (-) only
-- No spaces or special characters
-
-Default behavior:
-
-- `nextcloud_eurooffice_jwt_secret` stays empty in repo-managed vars
-- `nextcloud_eurooffice_jwt_secret_from_env` reads `NEXTCLOUD_EUROOFFICE_JWT_SECRET` on the controller
-- secret is written on the target host to `{{ nextcloud_repo_path }}/eurooffice-jwt.env` with mode `0600`
-- EuroOffice Quadlet loads it via `EnvironmentFile`
-
-Set the secret before running Ansible (example with alphanumeric + dashes):
-
-```bash
-export NEXTCLOUD_EUROOFFICE_JWT_SECRET='Your-Long-Random-Secret-With-Dashes-12345'
-ansible-playbook -i inventory/01-lab.yml fedora_base.yml --limit podman-vm -v
-```
-
-In Nextcloud Admin settings for EuroOffice, use:
-
-- Document server URL: `https://eurooffice.<your-nextcloud-domain>`
-- JWT secret: same value as `NEXTCLOUD_EUROOFFICE_JWT_SECRET`
-- JWT header: `AuthorizationJwt`
-
-### Talk server integration
-
-Use an external Talk server by configuring:
+## Core Variables
 
 ```yaml
-nextcloud_talk_server_url: "https://talk.example.com"
-nextcloud_talk_server_public_url: "https://talk.example.com"
+nextcloud_domain: "cloud.example.com"
+nextcloud_port: 8080
+nextcloud_image: "docker.io/nextcloud:latest"
+postgres_image: "docker.io/postgres:16-alpine"
+nextcloud_redis_image: "docker.io/redis:7-alpine"
+nextcloud_pull_policy: "missing"
+nextcloud_redis_pull_policy: "missing"
+
+nextcloud_trusted_proxies:
+  - "10.89.0.0/16"
+nextcloud_maintenance_window_start: 1
+nextcloud_default_phone_region: "DE"
 ```
 
-This allows the talk component to be hosted outside your homelab.
-
-## Usage
-
-Include the role in your playbook:
-
-```yaml
-- hosts: all
-  roles:
-    - deploy_nextcloud_container
-```
-
-## Notes
-
-- The role assumes `podman_user` and `podman_username` are defined globally in your existing inventory.
-- The role writes Quadlet files to `/home/{{ podman_user }}/.config/containers/systemd/`.
-- Stack target files are written to `/home/{{ podman_user }}/.config/systemd/user/`.
-- The Nextcloud stack uses PostgreSQL and does not rely on the AIO image.
-- The stack is available at `127.0.0.1:{{ nextcloud_port }}` on the host system.
-- Nginx reverse proxy or similar should be configured to handle TLS termination and route to the stack port.
+`nextcloud_trusted_proxies` must match the network from which the reverse proxy reaches the container.
 
 ## Stack Management
 
+Run user-scoped systemd commands as `podman`:
+
 ```bash
-# View the stack target status
-systemctl --user status nextcloud-stack.target
+sudo -u podman XDG_RUNTIME_DIR=/run/user/$(id -u podman) \
+  systemctl --user status nextcloud-stack.target
 
-# Restart the entire stack
-systemctl --user restart nextcloud-stack.target
-
-# View individual service logs
-journalctl --user -xeu nextcloud.service -n 50
-journalctl --user -xeu nextcloud-postgres.service -n 50
-journalctl --user -xeu nextcloud-eurooffice.service -n 50  # if enabled
+sudo -u podman XDG_RUNTIME_DIR=/run/user/$(id -u podman) \
+  journalctl --user -u nextcloud.service -n 100 --no-pager
 ```
 
-## Reverse Proxy Integration
+## Reverse Proxy
 
-Configure your reverse proxy to forward to `http://localhost:{{ nextcloud_port }}` with the following headers:
-
-```
-X-Real-IP: $remote_addr;
-X-Forwarded-For: $proxy_add_x_forwarded_for;
-X-Forwarded-Proto: $scheme;
-X-Forwarded-Host: {{ nextcloud_domain }};
-```
+Proxy to `http://127.0.0.1:{{ nextcloud_port }}` and pass the forwarded host, protocol, and client address headers. The `nginx_reverse_proxy` role manages the deployed nginx configuration and TLS certificate paths.

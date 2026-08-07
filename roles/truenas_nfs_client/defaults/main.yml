@@ -1,0 +1,9 @@
+---
+# NFS mounts exported by a TrueNAS server. Define these per inventory/customer.
+truenas_nfs_mounts: []
+
+# Resolve the appliance through the customer-specific DNS search domain.
+truenas_nfs_server: "truenas.{{ dns_search_domains | first }}"
+
+# Allow containers to access NFS volumes under enforcing SELinux.
+truenas_nfs_enable_container_access: true

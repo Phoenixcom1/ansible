@@ -1,3 +1,4 @@
 /.user
 .vscode
 .idea
+inventory/*.secrets.yml

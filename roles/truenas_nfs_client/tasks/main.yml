@@ -1,0 +1,49 @@
+---
+- name: Install NFS client utilities
+  package:
+    name: nfs-utils
+    state: present
+  become: true
+  when: truenas_nfs_mounts | length > 0
+
+- name: Create TrueNAS NFS mount directories
+  file:
+    path: "{{ item.path }}"
+    state: directory
+  become: true
+  loop: "{{ truenas_nfs_mounts }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Mount TrueNAS NFS exports
+  ansible.posix.mount:
+    path: "{{ item.path }}"
+    src: "{{ item.src | default(truenas_nfs_server ~ ':' ~ item.export_path) }}"
+    fstype: "{{ item.fstype | default('nfs4') }}"
+    opts: "{{ item.opts | default('rw,_netdev,nofail,x-systemd.automount') }}"
+    state: mounted
+  become: true
+  loop: "{{ truenas_nfs_mounts }}"
+  loop_control:
+    label: "{{ item.src | default(truenas_nfs_server ~ ':' ~ item.export_path) }} -> {{ item.path }}"
+
+- name: Check whether the SELinux NFS container boolean is available
+  command: getsebool container_use_nfs
+  register: truenas_nfs_container_use_nfs
+  changed_when: false
+  failed_when: false
+  become: true
+  when:
+    - truenas_nfs_enable_container_access | bool
+    - truenas_nfs_mounts | length > 0
+
+- name: Allow SELinux containers to access NFS volumes
+  ansible.posix.seboolean:
+    name: container_use_nfs
+    state: true
+    persistent: true
+  become: true
+  when:
+    - truenas_nfs_enable_container_access | bool
+    - truenas_nfs_mounts | length > 0
+    - truenas_nfs_container_use_nfs.rc == 0

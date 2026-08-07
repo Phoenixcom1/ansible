@@ -1,0 +1,15 @@
+---
+# TrueNAS REST API settings. Keep the API token outside inventory, for example
+# in the TRUENAS_API_TOKEN environment variable or an Ansible Vault variable.
+truenas_api_url: "https://{{ truenas_nfs_server }}"
+truenas_api_token: "{{ lookup('env', 'TRUENAS_API_TOKEN') | default('', true) }}"
+truenas_api_validate_certs: true
+
+# Each item needs dataset, export_path, path, and optionally allowed_hosts.
+# Dataset and NFS export creation is skipped for items without a dataset.
+truenas_nfs_provision_shares: "{{ truenas_nfs_mounts | default([]) | selectattr('dataset', 'defined') | list }}"
+truenas_nfs_dataset_parents: "{{ truenas_nfs_provision_shares | map(attribute='dataset') | map('regex_replace', '/[^/]+$', '') | unique | list }}"
+
+# Dedicated container-data datasets use the Fedora podman user's numeric IDs.
+truenas_nfs_manage_dataset_permissions: true
+truenas_nfs_dataset_mode: "0770"

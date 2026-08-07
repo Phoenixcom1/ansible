@@ -2,13 +2,10 @@
 
 $CONFIG = [
     'memcache.local' => '\\OC\\Memcache\\APCu',
-    'memcache.distributed' => '\\OC\\Memcache\\KeyValueCache',
-    'memcache.locking' => '\\OC\\Memcache\\KeyValueCache',
-    'memcache.kvstore' => [
-        'server' => [
-            'host' => '{{ nextcloud_redis_container }}',
-            'port' => 6379,
-            'protocol' => 'tcp',
-        ],
+    'memcache.distributed' => '\\OC\\Memcache\\Redis',
+    'memcache.locking' => '\\OC\\Memcache\\Redis',
+    'redis' => [
+        'host' => '{{ nextcloud_redis_container }}',
+        'port' => 6379,
     ],
 ];

@@ -5,6 +5,9 @@
 podman_username: podman
 podman_service_dir: /opt/podman
 
+# Domain currently used by the Nextcloud customer deployment.
+customer_domain: "kerberos.bitsnbyt.es"
+
 # SSL certificate paths (used by nginx reverse proxy for all services)
 # Wildcard certificate locations deployed by your firewall
 ssl_cert: "/etc/ssl/wildcard/kerberos.fassbender.contact/fullchain.pem"
