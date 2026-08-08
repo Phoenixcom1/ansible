@@ -10,6 +10,12 @@ truenas_api_validate_certs: true
 truenas_nfs_provision_shares: "{{ truenas_nfs_mounts | default([]) | selectattr('dataset', 'defined') | list }}"
 truenas_nfs_dataset_parents: "{{ truenas_nfs_provision_shares | map(attribute='dataset') | map('regex_replace', '/[^/]+$', '') | unique | list }}"
 
+# Set encrypted: true on an individual mount to create a passphrase-encrypted
+# dataset. The passphrase is only needed when the dataset is first created.
+truenas_nfs_dataset_encryption_passphrase: "{{ lookup('env', 'TRUENAS_NFS_DATASET_ENCRYPTION_PASSPHRASE') | default('', true) }}"
+truenas_nfs_dataset_encryption_algorithm: "AES-256-GCM"
+truenas_nfs_dataset_encryption_pbkdf2iters: 350000
+
 # Dedicated container-data datasets use the Fedora podman user's numeric IDs.
 truenas_nfs_manage_dataset_permissions: true
 truenas_nfs_dataset_mode: "0770"

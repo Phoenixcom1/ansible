@@ -36,6 +36,7 @@ all:
         - dataset: "tank/apps/nextcloud-data"
           export_path: "/mnt/tank/apps/nextcloud-data"
           path: "/srv/containers/nextcloud-data"
+          encrypted: true
       # Use the dedicated NFS dataset for Nextcloud data.
       nextcloud_data_external: true
       nextcloud_data_check_container_write: true

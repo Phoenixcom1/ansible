@@ -53,6 +53,28 @@ nextcloud_data_external: true
 nextcloud_data_dir: "/srv/containers/nextcloud-data"
 ```
 
+### Optional Dataset Encryption
+
+TrueNAS encryption is applied only when a dataset is created; an existing
+dataset cannot be encrypted in place. To create a new passphrase-encrypted
+dataset, opt in on that mount and provide
+`truenas_nfs_dataset_encryption_passphrase` through the ignored vaulted
+inventory, or set `TRUENAS_NFS_DATASET_ENCRYPTION_PASSPHRASE` on the Ansible
+controller:
+
+```yaml
+truenas_nfs_mounts:
+  - dataset: "tank/apps/nextcloud-data-encrypted"
+    export_path: "/mnt/tank/apps/nextcloud-data-encrypted"
+    path: "/srv/containers/nextcloud-data"
+    encrypted: true
+```
+
+TrueNAS does not store this passphrase. After a TrueNAS restart, unlock the
+dataset manually before starting services that use its NFS export. With the
+current mount settings, Nextcloud remains unavailable until the dataset is
+unlocked and its NFS mount becomes available.
+
 The API token needs permission to create datasets and NFS shares, manage the NFS service, and set filesystem attributes. For dedicated container-data datasets, the provisioner sets the dataset owner/group to the Fedora `podman` UID/GID and mode `0770`. No matching TrueNAS user is required because NFS authorizes the numeric IDs supplied by the Fedora host.
 
 Keep `truenas_api_token` in an ignored companion inventory such as `inventory/01-lab.secrets.yml`, or supply it through `TRUENAS_API_TOKEN`. Add this pattern to `.gitignore`:
@@ -74,6 +96,9 @@ all:
         $ANSIBLE_VAULT;1.2;AES256;lab
         ...
       nextcloud_db_password: !vault |
+        $ANSIBLE_VAULT;1.2;AES256;lab
+        ...
+      truenas_nfs_dataset_encryption_passphrase: !vault |
         $ANSIBLE_VAULT;1.2;AES256;lab
         ...
 ```

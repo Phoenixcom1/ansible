@@ -94,7 +94,53 @@
   loop: "{{ truenas_dataset_lookup.results }}"
   loop_control:
     label: "{{ item.item.dataset }}"
-  when: item.status == 404
+  when:
+    - item.status == 404
+    - not (item.item.encrypted | default(false) | bool)
+  no_log: true
+
+- name: Validate passphrase for encrypted TrueNAS datasets
+  assert:
+    that:
+      - truenas_nfs_dataset_encryption_passphrase | string | length > 0
+    fail_msg: >-
+      Provide truenas_nfs_dataset_encryption_passphrase through an ignored
+      vaulted inventory or TRUENAS_NFS_DATASET_ENCRYPTION_PASSPHRASE.
+  loop: "{{ truenas_dataset_lookup.results }}"
+  loop_control:
+    label: "{{ item.item.dataset }}"
+  when:
+    - item.status == 404
+    - item.item.encrypted | default(false) | bool
+  no_log: true
+
+- name: Create missing passphrase-encrypted TrueNAS datasets
+  uri:
+    url: "{{ truenas_api_url }}/api/v2.0/pool/dataset"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_token }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      name: "{{ item.item.dataset }}"
+      type: FILESYSTEM
+      share_type: GENERIC
+      encryption: true
+      inherit_encryption: false
+      encryption_options:
+        generate_key: false
+        passphrase: "{{ truenas_nfs_dataset_encryption_passphrase }}"
+        algorithm: "{{ truenas_nfs_dataset_encryption_algorithm }}"
+        pbkdf2iters: "{{ truenas_nfs_dataset_encryption_pbkdf2iters | int }}"
+    validate_certs: "{{ truenas_api_validate_certs }}"
+    status_code: [200]
+  loop: "{{ truenas_dataset_lookup.results }}"
+  loop_control:
+    label: "{{ item.item.dataset }}"
+  when:
+    - item.status == 404
+    - item.item.encrypted | default(false) | bool
   no_log: true
 
 - name: Look up existing TrueNAS NFS shares
