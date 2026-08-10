@@ -1,0 +1,16 @@
+---
+# These use the same variable names as restic-backup so repository and NAS
+# configuration can be shared through inventory or group variables.
+restic_repository: "/mnt/backup/restic-podman"
+restic_password_file: "/root/.restic-password"
+restic_nas_enabled: true
+restic_nas_source: "//datenbunker.local/Service_Backups"
+restic_nas_mount_point: "/mnt/backup"
+restic_nas_credentials: "/root/.smb_restic_creds"
+restic_nas_mount_options: "vers=3.1.1,_netdev,credentials={{ restic_nas_credentials }},uid=0,gid=0,file_mode=0600,dir_mode=0700"
+
+# The role prepares access only. Set these to have it print a ready-to-run
+# restore command; the command is deliberately never executed by Ansible.
+restic_restore_snapshot: ""
+restic_restore_target: "/var/tmp/restic-restore"
+restic_restore_include_paths: []

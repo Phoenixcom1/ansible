@@ -1,0 +1,130 @@
+---
+- name: Install restic on Debian or Ubuntu
+  ansible.builtin.apt:
+    name: restic
+    state: present
+    update_cache: true
+  become: true
+  when: host_is_debian | default(ansible_facts['os_family'] == 'Debian')
+
+- name: Install restic on Fedora or RHEL
+  ansible.builtin.command:
+    cmd: dnf install -y restic
+  become: true
+  when: host_is_redhat | default(ansible_facts['os_family'] == 'RedHat')
+
+- name: Install CIFS utilities on Debian or Ubuntu
+  ansible.builtin.apt:
+    name: cifs-utils
+    state: present
+  become: true
+  when:
+    - restic_nas_enabled | bool
+    - host_is_debian | default(ansible_facts['os_family'] == 'Debian')
+
+- name: Install CIFS utilities on Fedora or RHEL
+  ansible.builtin.command:
+    cmd: dnf install -y cifs-utils
+  become: true
+  when:
+    - restic_nas_enabled | bool
+    - host_is_redhat | default(ansible_facts['os_family'] == 'RedHat')
+
+- name: Check for Restic NAS credentials on the controller
+  ansible.builtin.stat:
+    path: "{{ lookup('env', 'HOME') }}/.smb_restic_creds"
+  register: restic_restore_controller_credentials
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  when: restic_nas_enabled | bool
+
+- name: Copy Restic NAS credentials to the restore host
+  ansible.builtin.copy:
+    src: "{{ lookup('env', 'HOME') }}/.smb_restic_creds"
+    dest: "{{ restic_nas_credentials }}"
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  when:
+    - restic_nas_enabled | bool
+    - restic_restore_controller_credentials.stat.exists | default(false)
+
+- name: Check for Restic NAS credentials on the restore host
+  ansible.builtin.stat:
+    path: "{{ restic_nas_credentials }}"
+  register: restic_restore_credentials
+  become: true
+  when: restic_nas_enabled | bool
+
+- name: Require Restic NAS credentials
+  ansible.builtin.assert:
+    that: restic_restore_credentials.stat.exists
+    fail_msg: >-
+      Restore requires {{ restic_nas_credentials }}. Copy the existing NAS
+      credentials from the backup configuration; do not create unrelated ones.
+  when: restic_nas_enabled | bool
+
+- name: Create Restic NAS mount point
+  ansible.builtin.file:
+    path: "{{ restic_nas_mount_point }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  become: true
+  when: restic_nas_enabled | bool
+
+- name: Mount Restic NAS repository share
+  ansible.posix.mount:
+    path: "{{ restic_nas_mount_point }}"
+    src: "{{ restic_nas_source }}"
+    fstype: cifs
+    opts: "{{ restic_nas_mount_options }}"
+    state: mounted
+  become: true
+  when: restic_nas_enabled | bool
+
+- name: Check for the existing Restic password file
+  ansible.builtin.stat:
+    path: "{{ restic_password_file }}"
+  register: restic_restore_password
+  become: true
+
+- name: Require the existing Restic password file
+  ansible.builtin.assert:
+    that: restic_restore_password.stat.exists
+    fail_msg: >-
+      Restore requires the existing {{ restic_password_file }} from the backup
+      host. This role never generates a new Restic password.
+  become: true
+
+- name: Verify the existing Restic repository is accessible
+  ansible.builtin.command:
+    argv:
+      - restic
+      - -r
+      - "{{ restic_repository }}"
+      - snapshots
+      - --latest
+      - "1"
+  environment:
+    RESTIC_PASSWORD_FILE: "{{ restic_password_file }}"
+  changed_when: false
+  become: true
+  no_log: true
+
+- name: Display manual Restic snapshot command
+  ansible.builtin.debug:
+    msg: >-
+      Restic is ready. List service snapshots with:
+      sudo RESTIC_PASSWORD_FILE={{ restic_password_file }} restic -r
+      {{ restic_repository }} snapshots --tag immich
+
+- name: Display requested manual Restic restore command
+  ansible.builtin.debug:
+    msg: |
+      Run this command manually after stopping the target service:
+      sudo RESTIC_PASSWORD_FILE={{ restic_password_file }} restic -r {{ restic_repository }} restore {{ restic_restore_snapshot }} --target {{ restic_restore_target }}{% for path in restic_restore_include_paths %} --include {{ path }}{% endfor %} --exclude-xattr 'security.*'
+  when: restic_restore_snapshot | length > 0

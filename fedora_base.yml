@@ -27,14 +27,17 @@
     #- deploy_unifi_controller_container
     #- deploy_paperless_container
     #- deploy_frigate_container
-    #- deploy_immich_container
     #- restic-backup
+    - role: restic-restore
+      when: restic_restore_enabled | default(false) | bool
     #- deploy_whisper_container
     #- deploy_piper_container
     #- deploy_openwakeword_container
     #- deploy_openwebui_container
     #- deploy_adguardhome_container
     #- deploy_adguardhome_sync_container
-    - truenas_nfs_provision
-    - truenas_nfs_client
-    - deploy_nextcloud_container
+    #- truenas_nfs_provision
+    #- truenas_nfs_client
+    #- deploy_nextcloud_container
+    #- role: deploy_immich_container
+    #  when: immich_enabled | default(false) | bool
