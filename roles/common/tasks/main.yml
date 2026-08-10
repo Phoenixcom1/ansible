@@ -1,6 +1,11 @@
 ---
 #Linux common tasks
 
+- name: Configure managed DNS
+  ansible.builtin.import_tasks: dns.yml
+  tags:
+    - dns
+
 # Fix ansible user shell (ensure bash for proper arrow key support)
 - name: Ensure ansible user has bash shell
   ansible.builtin.user:
@@ -8,60 +13,6 @@
     shell: /bin/bash
   become: true
   when: ansible_user == 'ansible'
-
-- name: Gather service facts
-  ansible.builtin.service_facts:
-  when: ansible_service_mgr == 'systemd'
-
-- name: Configure systemd-resolved DNS when available
-  block:
-    - name: Ensure systemd-resolved config directory exists
-      ansible.builtin.file:
-        path: /etc/systemd/resolved.conf.d
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-      become: true
-
-    - name: Write systemd-resolved DNS configuration
-      ansible.builtin.copy:
-        dest: /etc/systemd/resolved.conf.d/ansible-dns.conf
-        owner: root
-        group: root
-        mode: "0644"
-        content: |
-          [Resolve]
-          DNS={{ dns_nameservers_effective | join(' ') }}
-          FallbackDNS={{ dns_fallback_nameservers | join(' ') }}
-          Domains={{ dns_search_domains | join(' ') }}
-      become: true
-
-    - name: Restart systemd-resolved
-      ansible.builtin.systemd:
-        name: systemd-resolved
-        enabled: yes
-        state: restarted
-      become: true
-  when:
-    - ansible_service_mgr == 'systemd'
-    - ansible_facts.services['systemd-resolved.service'] is defined
-    - ansible_facts.services['systemd-resolved.service'].state == 'running'
-
-- name: Configure /etc/resolv.conf when systemd-resolved is unavailable
-  ansible.builtin.copy:
-    dest: /etc/resolv.conf
-    owner: root
-    group: root
-    mode: "0644"
-    content: |
-      {% for nameserver in dns_nameservers_effective %}nameserver {{ nameserver }}
-      {% endfor %}
-      {% for domain in dns_search_domains %}search {{ domain }}
-      {% endfor %}
-  become: true
-  when:
-    - ansible_service_mgr != 'systemd' or ansible_facts.services['systemd-resolved.service'] is not defined or ansible_facts.services['systemd-resolved.service'].state != 'running'
 
 - name: Update all packages to their latest version (Debian)
   become: true
@@ -164,4 +115,3 @@
   debug:
     msg: ".smbcredentials file not found on controller - skipping copy"
   when: not smbcreds_controller.stat.exists
-

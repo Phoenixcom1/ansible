@@ -1,0 +1,124 @@
+---
+- name: Gather service facts for DNS configuration
+  ansible.builtin.service_facts:
+  when: ansible_service_mgr == 'systemd'
+
+- name: List active NetworkManager connections
+  ansible.builtin.command:
+    argv:
+      - nmcli
+      - --terse
+      - --fields
+      - NAME,DEVICE
+      - connection
+      - show
+      - --active
+  register: common_active_networkmanager_connections
+  changed_when: false
+  when:
+    - common_manage_networkmanager_dns | bool
+    - ansible_facts.services['NetworkManager.service'] is defined
+    - ansible_facts.services['NetworkManager.service'].state == 'running'
+
+- name: Read active NetworkManager DNS settings
+  ansible.builtin.command:
+    argv:
+      - nmcli
+      - --get-values
+      - ipv4.ignore-auto-dns,ipv4.dns,ipv4.dns-search
+      - connection
+      - show
+      - "{{ item.rsplit(':', 1)[0] }}"
+  loop: >-
+    {{ common_active_networkmanager_connections.stdout_lines | default([])
+       | reject('match', '^.*:lo$') | list }}
+  loop_control:
+    label: "{{ item.rsplit(':', 1)[0] }}"
+  register: common_networkmanager_dns_settings
+  changed_when: false
+  when: common_active_networkmanager_connections is not skipped
+
+- name: Configure active NetworkManager connections to use managed DNS
+  ansible.builtin.command:
+    argv:
+      - nmcli
+      - connection
+      - modify
+      - "{{ item.item.rsplit(':', 1)[0] }}"
+      - ipv4.ignore-auto-dns
+      - "yes"
+      - ipv4.dns
+      - "{{ dns_nameservers_effective | join(' ') }}"
+      - ipv4.dns-search
+      - "{{ dns_search_domains | join(' ') }}"
+  loop: "{{ common_networkmanager_dns_settings.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.rsplit(':', 1)[0] }}"
+  when: >-
+    item.stdout_lines | default([]) !=
+    ['yes', dns_nameservers_effective | join(','), dns_search_domains | join(',')]
+  register: common_networkmanager_dns_updated
+  become: true
+
+- name: Apply managed DNS to active NetworkManager devices
+  ansible.builtin.command:
+    argv:
+      - nmcli
+      - device
+      - reapply
+      - "{{ item.item.item.rsplit(':', 1)[1] }}"
+  loop: "{{ common_networkmanager_dns_updated.results | default([]) | selectattr('changed') | list }}"
+  loop_control:
+    label: "{{ item.item.item.rsplit(':', 1)[1] }}"
+  when: common_networkmanager_dns_updated is defined
+  become: true
+
+- name: Configure systemd-resolved DNS when available
+  block:
+    - name: Ensure systemd-resolved config directory exists
+      ansible.builtin.file:
+        path: /etc/systemd/resolved.conf.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      become: true
+
+    - name: Write systemd-resolved DNS configuration
+      ansible.builtin.copy:
+        dest: /etc/systemd/resolved.conf.d/ansible-dns.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Resolve]
+          DNS={{ dns_nameservers_effective | join(' ') }}
+          FallbackDNS={{ dns_fallback_nameservers | join(' ') }}
+          Domains={{ dns_search_domains | join(' ') }}
+      become: true
+
+    - name: Restart systemd-resolved
+      ansible.builtin.systemd:
+        name: systemd-resolved
+        enabled: yes
+        state: restarted
+      become: true
+  when:
+    - ansible_service_mgr == 'systemd'
+    - ansible_facts.services['systemd-resolved.service'] is defined
+    - ansible_facts.services['systemd-resolved.service'].state == 'running'
+
+- name: Configure /etc/resolv.conf when systemd-resolved is unavailable
+  ansible.builtin.copy:
+    dest: /etc/resolv.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {% for nameserver in dns_nameservers_effective %}nameserver {{ nameserver }}
+      {% endfor %}
+      {% for domain in dns_search_domains %}search {{ domain }}
+      {% endfor %}
+  become: true
+  when:
+    - ansible_service_mgr != 'systemd' or ansible_facts.services['systemd-resolved.service'] is not defined or ansible_facts.services['systemd-resolved.service'].state != 'running'
