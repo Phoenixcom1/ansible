@@ -68,7 +68,7 @@
 
 - name: Ensure config directory exists
   file:
-    path: /etc/nginx/conf.d
+    path: "{{ nginx_conf_dir }}"
     state: directory
     mode: 0755
   become: true
@@ -84,7 +84,7 @@
 
 - name: Remove stale global SSL configuration when certificates are missing
   ansible.builtin.file:
-    path: /etc/nginx/conf.d/00-default-ssl.conf
+    path: "{{ nginx_conf_dir }}/00-default-ssl.conf"
     state: absent
   become: true
   when: not (ssl_cert_check.results[0].stat.exists and ssl_cert_check.results[1].stat.exists)
@@ -92,7 +92,7 @@
 - name: Deploy global SSL configuration
   template:
     src: 00-default-ssl.conf.j2
-    dest: /etc/nginx/conf.d/00-default-ssl.conf
+    dest: "{{ nginx_conf_dir }}/00-default-ssl.conf"
     mode: "0644"
   become: true
   when: ssl_cert_check.results[0].stat.exists and ssl_cert_check.results[1].stat.exists
