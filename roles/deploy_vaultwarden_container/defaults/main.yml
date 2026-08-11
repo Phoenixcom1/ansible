@@ -15,7 +15,7 @@ vaultwarden_network: vaultwarden_net
 vaultwarden_network_driver: bridge
 
 # Vaultwarden application settings
-vaultwarden_domain: "vault.kerberos.fassbender.contact"
+vaultwarden_domain: "vault.{{ customer_domain }}"
 vaultwarden_port: 5152
 
 # Environment variables
