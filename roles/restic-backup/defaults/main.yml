@@ -1,30 +1,34 @@
 ---
 # Restic backup configuration
 
-# Restic repository location (NAS mount point)
-# This should be a mounted network share or local directory
-restic_repository: "/mnt/backup/restic-podman"
+# Restic repositories are kept on the shared TrueNAS NFS dataset. A distinct
+# directory per inventory host prevents repositories from being shared.
+restic_repository: "{{ restic_nas_mount_point }}/restic-{{ inventory_hostname }}"
 
 # Restic password file location (for encryption)
 restic_password_file: "/root/.restic-password"
+# The dedicated NFS export maps root only for its authorized backup host, so
+# the established root-owned password file and service identity are retained.
+restic_backup_user: root
+restic_backup_group: root
 
 # Backup schedule (systemd timer format)
 restic_backup_time: "*-*-* 02:00:00" # Daily at 2 AM
 
-# Set to true to activate the timer and begin scheduled backups.
-restic_enable_timer: false
+# The timer runs daily; services remain opt-in through this inventory-overridable
+# list while their paths and behavior stay defined below.
+restic_enable_timer: true
+restic_backup_enabled_services: []
 
 # Services to backup (each service has its own backup paths)
 restic_backup_services:
   homepage:
-    enabled: false
     paths:
       - "{{ podman_service_dir }}/homepage"
     excludes:
       - "*.log"
 
   unifi:
-    enabled: false
     # Strategy: Backup only UniFi's built-in autobackup files
     # UniFi creates .unf backup files automatically, no need for live DB backup
     paths:
@@ -33,7 +37,6 @@ restic_backup_services:
       - "*.log"
 
   paperless:
-    enabled: false
     paths:
       # Primary backup: export (created by document_exporter)
       - "{{ podman_service_dir }}/paperless/export"
@@ -53,9 +56,11 @@ restic_backup_services:
       - "*/thumbnails/*" # Can be regenerated
 
   vaultwarden:
-    enabled: false
     # Strategy: Stop container before backup (passwords are critical)
     stop_before_backup: true
+    # Quadlet-managed services are stopped through the owning user manager.
+    systemd_user_unit: vaultwarden.service
+    systemd_user: "{{ podman_username }}"
     compose_file: "{{ podman_service_dir }}/vaultwarden/compose_vaultwarden.yml"
     project_name: vaultwarden
     paths:
@@ -65,7 +70,6 @@ restic_backup_services:
       - "*/icon_cache/*" # Website icons - can be re-downloaded
 
   jellyfin:
-    enabled: false
     # Strategy: Stop container before backup (SQLite database)
     stop_before_backup: true
     compose_file: "{{ podman_service_dir }}/jellyfin/compose_jellyfin.yml"
@@ -79,7 +83,6 @@ restic_backup_services:
       - "*.log"
 
   frigate:
-    enabled: false
     # Strategy: Stop container before backup (SQLite database)
     stop_before_backup: true
     compose_file: "{{ podman_service_dir }}/frigate/compose_frigate.yml"
@@ -95,7 +98,6 @@ restic_backup_services:
       - "*.log"
 
   immich:
-    enabled: false
     # Strategy: Stop containers before backup (PostgreSQL database + uploaded photos)
     stop_before_backup: true
     compose_file: "{{ podman_service_dir }}/immich/compose_immich.yml"
@@ -123,9 +125,13 @@ restic_keep_daily: 7
 restic_keep_weekly: 4
 restic_keep_monthly: 12
 
-# NAS mount configuration (optional - if not already mounted)
+# TrueNAS SMB mount configuration. The share and dedicated account are
+# provisioned by truenas_smb_provision.
 restic_nas_enabled: true
-restic_nas_source: "//datenbunker.local/Service_Backups"
+restic_nas_fstype: cifs
+restic_nas_source: "//{{ truenas_smb_server }}/{{ truenas_smb_backup_share_name }}"
 restic_nas_mount_point: "/mnt/backup"
 restic_nas_credentials: "/root/.smb_restic_creds"
+restic_nas_username: "{{ truenas_smb_backup_username }}"
+restic_nas_password: "{{ truenas_smb_backup_password }}"
 restic_nas_mount_options: "vers=3.1.1,_netdev,credentials={{ restic_nas_credentials }},uid=0,gid=0,file_mode=0600,dir_mode=0700"

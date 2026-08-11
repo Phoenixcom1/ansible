@@ -10,8 +10,8 @@ Requires=mnt-backup.mount
 [Service]
 Type=oneshot
 ExecStart=/opt/scripts/restic-backup.sh
-User=root
-Group=root
+User={{ restic_backup_user }}
+Group={{ restic_backup_group }}
 
 # Security settings
 PrivateTmp=yes

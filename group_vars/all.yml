@@ -12,6 +12,7 @@ customer_domain: "kerberos.bitsnbyt.es"
 # Wildcard certificate locations deployed by your firewall
 ssl_cert: "/etc/ssl/wildcard/kerberos.fassbender.contact/fullchain.pem"
 ssl_key: "/etc/ssl/wildcard/kerberos.fassbender.contact/key.pem"
+nginx_conf_dir: "/etc/nginx/conf.d"
 
 # Global DNS configuration for hosts and containers
 # Primary/secondary/fallback DNS servers can be overridden per environment.

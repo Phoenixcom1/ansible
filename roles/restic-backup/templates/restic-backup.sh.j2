@@ -42,12 +42,13 @@ EXCLUDE_ARGS+=(--exclude "{{ exclude }}")
 
 # Track stopped containers for restart
 declare -a STOPPED_SERVICES=()
+declare -a STOPPED_SYSTEMD_UNITS=()
 
 # Pre-backup actions
 echo ""
 echo "Running pre-backup actions..."
 
-{% if restic_backup_services.paperless is defined and restic_backup_services.paperless.enabled %}
+{% if 'paperless' in restic_backup_enabled_services %}
 # Paperless: Run document exporter for consistent backup
 echo "Running Paperless document exporter..."
 PAPERLESS_CONTAINER="paperless-webserver"
@@ -63,7 +64,22 @@ fi
 {% endif %}
 
 {% for service_name, service_config in restic_backup_services.items() %}
-{% if service_config.enabled and service_config.get('stop_before_backup', False) %}
+{% if service_name in restic_backup_enabled_services and service_config.get('stop_before_backup', False) %}
+{% if service_config.get('systemd_user_unit', '') %}
+# {{ service_name }}: Stop the rootless Quadlet service for a consistent backup.
+SYSTEMD_UNIT="{{ service_config.systemd_user_unit }}"
+SYSTEMD_USER="{{ service_config.systemd_user | default(podman_username) }}"
+echo "Stopping {{ service_name }} (${SYSTEMD_UNIT}) for safe backup..."
+if [ "$(id -un)" = "${SYSTEMD_USER}" ]; then
+    XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user stop "${SYSTEMD_UNIT}"
+else
+    runuser -u "${SYSTEMD_USER}" -- env \
+        XDG_RUNTIME_DIR="/run/user/$(id -u "${SYSTEMD_USER}")" \
+        systemctl --user stop "${SYSTEMD_UNIT}"
+fi
+STOPPED_SYSTEMD_UNITS+=("${SYSTEMD_USER}|${SYSTEMD_UNIT}")
+echo "✓ {{ service_name }} stopped"
+{% else %}
 # {{ service_name }}: Stop compose stack for safe database backup
 COMPOSE_FILE="{{ service_config.compose_file }}"
 PROJECT_NAME="{{ service_config.project_name }}"
@@ -78,6 +94,7 @@ else
     echo "⚠ Warning: Compose file ${COMPOSE_FILE} not found, skipping {{ service_name }} stop"
 fi
 {% endif %}
+{% endif %}
 {% endfor %}
 
 echo "Pre-backup actions completed"
@@ -85,7 +102,7 @@ echo ""
 
 # Backup each enabled service
 {% for service_name, service_config in restic_backup_services.items() %}
-{% if service_config.enabled %}
+{% if service_name in restic_backup_enabled_services %}
 echo ""
 echo "Backing up {{ service_name }}..."
 {% for path in service_config.paths %}
@@ -126,6 +143,24 @@ if [ {% raw %}${#STOPPED_SERVICES[@]}{% endraw %} -gt 0 ]; then
             echo "⚠ ERROR: Failed to restart ${PROJECT_NAME}!"
         }
         echo "✓ ${PROJECT_NAME} restarted"
+    done
+fi
+
+if [ {% raw %}${#STOPPED_SYSTEMD_UNITS[@]}{% endraw %} -gt 0 ]; then
+    echo ""
+    echo "Restarting stopped user services..."
+    for SERVICE_INFO in "${STOPPED_SYSTEMD_UNITS[@]}"; do
+        SYSTEMD_USER="{% raw %}${SERVICE_INFO%%|*}{% endraw %}"
+        SYSTEMD_UNIT="{% raw %}${SERVICE_INFO##*|}{% endraw %}"
+        echo "Starting ${SYSTEMD_UNIT} for ${SYSTEMD_USER}..."
+        if [ "$(id -un)" = "${SYSTEMD_USER}" ]; then
+            XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user start "${SYSTEMD_UNIT}"
+        else
+            runuser -u "${SYSTEMD_USER}" -- env \
+                XDG_RUNTIME_DIR="/run/user/$(id -u "${SYSTEMD_USER}")" \
+                systemctl --user start "${SYSTEMD_UNIT}"
+        fi
+        echo "✓ ${SYSTEMD_UNIT} started"
     done
 fi
 

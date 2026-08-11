@@ -1,0 +1,13 @@
+---
+truenas_smb_backup_dataset: "tank/apps/podman-backups"
+truenas_smb_backup_export_path: "/mnt/tank/apps/podman-backups"
+truenas_smb_backup_share_name: "podman-backups"
+truenas_smb_backup_username: "restic-backup"
+truenas_smb_backup_password: "{{ truenas_restic_smb_password | default('', true) }}"
+truenas_smb_server: "truenas.{{ dns_search_domains | first }}"
+truenas_smb_api_url: "https://{{ truenas_smb_server }}"
+truenas_smb_api_token: "{{ truenas_api_token }}"
+truenas_smb_api_validate_certs: "{{ truenas_api_validate_certs }}"
+truenas_smb_dataset_encryption_passphrase: "{{ truenas_nfs_dataset_encryption_passphrase }}"
+truenas_smb_dataset_encryption_algorithm: "{{ truenas_nfs_dataset_encryption_algorithm }}"
+truenas_smb_dataset_encryption_pbkdf2iters: "{{ truenas_nfs_dataset_encryption_pbkdf2iters }}"

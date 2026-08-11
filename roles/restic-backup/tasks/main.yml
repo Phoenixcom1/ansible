@@ -23,7 +23,8 @@
     state: present
   become: true
   when:
-    - restic_nas_enabled
+    - restic_nas_enabled | bool
+    - restic_nas_fstype == 'cifs'
     - host_is_debian | default(ansible_facts['os_family'] == 'Debian')
 
 - name: Install CIFS utilities for NAS mount on Fedora/RHEL
@@ -31,15 +32,44 @@
     cmd: dnf install -y cifs-utils
   become: true
   when:
-    - restic_nas_enabled
+    - restic_nas_enabled | bool
+    - restic_nas_fstype == 'cifs'
     - host_is_redhat | default(ansible_facts['os_family'] == 'RedHat')
 
-- name: Check whether the NAS credentials file exists
-  stat:
-    path: "{{ restic_nas_credentials }}"
-  register: restic_nas_creds_stat
+- name: Install NFS utilities for NAS mount
+  package:
+    name: "{{ 'nfs-common' if ansible_facts['os_family'] == 'Debian' else 'nfs-utils' }}"
+    state: present
   become: true
-  when: restic_nas_enabled
+  when:
+    - restic_nas_enabled | bool
+    - restic_nas_fstype in ['nfs', 'nfs4']
+
+- name: Require the dedicated TrueNAS SMB backup password
+  assert:
+    that: restic_nas_password | string | length > 0
+    fail_msg: >-
+      Define truenas_restic_smb_password in vaulted inventory before enabling
+      a Restic backup service.
+  no_log: true
+  when:
+    - restic_nas_enabled | bool
+    - restic_nas_fstype == 'cifs'
+
+- name: Create Restic SMB credentials file
+  copy:
+    dest: "{{ restic_nas_credentials }}"
+    content: |
+      username={{ restic_nas_username }}
+      password={{ restic_nas_password }}
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  no_log: true
+  when:
+    - restic_nas_enabled | bool
+    - restic_nas_fstype == 'cifs'
 
 - name: Create NAS mount point directory
   file:
@@ -50,51 +80,20 @@
     mode: "0700"
   become: true
   when:
-    - restic_nas_enabled
-    - restic_nas_creds_stat.stat.exists | default(false)
-
-- name: Check if .smb_restic_creds exists on controller
-  stat:
-    path: "{{ lookup('env', 'HOME') }}/.smb_restic_creds"
-  register: restic_smb_creds_controller
-  delegate_to: localhost
-  become: false
-  changed_when: false
-
-- name: Copy .smb_restic_creds file to target root home
-  ansible.builtin.copy:
-    src: "{{ lookup('env', 'HOME') }}/.smb_restic_creds"
-    dest: /root/.smb_restic_creds
-    owner: root
-    group: root
-    mode: "0600"
-  become: true
-  when: restic_smb_creds_controller.stat.exists
-  register: restic_smb_creds_copied
-
-- name: Display restic SMB credentials copy status
-  debug:
-    msg: ".smb_restic_creds file copied to /root/.smb_restic_creds"
-  when: restic_smb_creds_copied.changed
-
-- name: Display restic SMB credentials not found message
-  debug:
-    msg: ".smb_restic_creds file not found on controller - skipping copy"
-  when: not restic_smb_creds_controller.stat.exists
+    - restic_nas_enabled | bool
 
 - name: Mount NAS backup directory
   mount:
     path: "{{ restic_nas_mount_point }}"
     src: "{{ restic_nas_source }}"
-    fstype: cifs
+    fstype: "{{ restic_nas_fstype }}"
     opts: "{{ restic_nas_mount_options }}"
     state: mounted
     dump: 0
     passno: 0
   become: true
   when:
-    - restic_nas_enabled
-    - restic_nas_creds_stat.stat.exists | default(false)
+    - restic_nas_enabled | bool
 
 - name: Wait for NAS mount to be available
   wait_for:
@@ -102,15 +101,7 @@
     state: present
     timeout: 30
   when:
-    - restic_nas_enabled
-    - restic_nas_creds_stat.stat.exists | default(false)
-
-- name: Report that NAS mount is skipped because credentials are missing
-  debug:
-    msg: "Skipping NAS mount because credentials file {{ restic_nas_credentials }} is not present yet."
-  when:
-    - restic_nas_enabled
-    - not (restic_nas_creds_stat.stat.exists | default(false))
+    - restic_nas_enabled | bool
 
 # Setup restic password
 - name: Check if restic password file exists
@@ -129,8 +120,8 @@
   copy:
     content: "{{ restic_password | default(generated_restic_password) }}"
     dest: "{{ restic_password_file }}"
-    owner: root
-    group: root
+    owner: "{{ restic_backup_user }}"
+    group: "{{ restic_backup_group }}"
     mode: "0600"
   become: true
   when: not restic_password_stat.stat.exists
@@ -231,8 +222,8 @@
   file:
     path: /var/log/restic-backup.log
     state: touch
-    owner: root
-    group: root
+    owner: "{{ restic_backup_user }}"
+    group: "{{ restic_backup_group }}"
     mode: "0644"
   become: true
   changed_when: false
@@ -257,10 +248,8 @@
       Backup schedule: {{ restic_backup_time }}
 
       Services configured for backup:
-      {% for service_name, service_config in restic_backup_services.items() %}
-      {% if service_config.enabled %}
-      - {{ service_name }}: {{ service_config.paths | join(', ') }}
-      {% endif %}
+      {% for service_name in restic_backup_enabled_services %}
+      - {{ service_name }}: {{ restic_backup_services[service_name].paths | join(', ') }}
       {% endfor %}
 
       Retention policy:

@@ -7,18 +7,33 @@ Automated backup solution using Restic for Podman containers to NAS storage.
 - Encrypted, deduplicated incremental backups
 - Automatic retention policy (7 daily, 4 weekly, 12 monthly)
 - Systemd timer for automated daily backups
-- NAS mount support (CIFS/SMB)
+- TrueNAS NFS repository support
 - Per-service backup configuration
 - Comprehensive logging
 
 ## Configuration
 
+### Required Vault Variable
+
+Create the dedicated TrueNAS SMB account password in the vaulted companion
+inventory (`inventory/01-lab.secrets.yml`):
+
+```yaml
+truenas_restic_smb_password: "use-a-long-unique-password"
+```
+
+The `truenas_smb_provision` role creates the encrypted
+`tank/apps/podman-backups` dataset, its `podman-backups` SMB share, and the
+`restic-backup` TrueNAS account. `restic-backup` writes the corresponding
+root-only mount credentials to `/root/.smb_restic_creds`.
+
 ### Basic Setup (defaults/main.yml)
 
 ```yaml
-# NAS configuration
-restic_nas_source: "//datenbunker.local/Backup"
+# TrueNAS NFS configuration
+restic_nas_source: "truenas.example.net:/mnt/tank/apps/podman-backups"
 restic_nas_mount_point: "/mnt/backup"
+restic_repository: "{{ restic_nas_mount_point }}/restic-{{ inventory_hostname }}"
 
 # Services to backup
 restic_backup_services:
@@ -86,30 +101,30 @@ su - podman -c "podman exec paperless-webserver document_exporter /usr/src/paper
 
 ### Container Stop for Database Safety
 
-Services with `stop_before_backup: true` are stopped before backup using `podman-compose`:
+Services with `stop_before_backup: true` are stopped before backup. Vaultwarden
+uses its rootless Podman Quadlet user service:
 
 ```yaml
 vaultwarden:
   enabled: true
   stop_before_backup: true
-  compose_file: "{{ podman_service_dir }}/vaultwarden/compose_vaultwarden.yml"
-  project_name: vaultwarden
+  systemd_user_unit: vaultwarden.service
+  systemd_user: "{{ podman_username }}"
   paths:
     - "{{ podman_service_dir }}/vaultwarden/data"
 ```
 
 **What this does:**
 
-1. Runs `podman-compose down` to stop the entire stack
+1. Stops the Quadlet-managed `vaultwarden.service`
 2. Backs up all data while containers are stopped
-3. Runs `podman-compose up -d` to restart the stack
+3. Starts `vaultwarden.service` again
 
-**Why use compose instead of individual container stop?**
+**Why use the managed service rather than an individual container stop?**
 
-- **Proper dependency handling**: Compose stops containers in correct order
-- **Network management**: Networks are preserved/recreated correctly
-- **Multi-container stacks**: Handles services with multiple containers
-- **Future-proof**: Works with current compose setup, easy to migrate to systemd units
+- **Managed lifecycle**: Systemd preserves the Quadlet service definition
+- **Correct identity**: The command uses the owning rootless Podman user
+- **Reliable restart**: Systemd restores the service in its expected state
 
 **When to use this strategy:**
 
@@ -141,7 +156,7 @@ Complete overview of all configured services:
 | **Homepage**    | Live backup       | None     | None          | Static config files only               |
 | **UniFi**       | Live backup       | None     | MongoDB       | Has built-in auto-backups              |
 | **Paperless**   | Document exporter | None     | SQLite        | App-level export ensures consistency   |
-| **Vaultwarden** | Stop compose      | ~5s      | SQLite        | Passwords require zero corruption risk |
+| **Vaultwarden** | Stop Quadlet      | ~5s      | SQLite        | Passwords require zero corruption risk |
 | **Jellyfin**    | Stop compose      | ~5s      | SQLite        | Media library database                 |
 | **Frigate**     | Stop compose      | ~5s      | SQLite        | Camera events and detection data       |
 
@@ -177,7 +192,7 @@ sudo tail -f /var/log/restic-backup.log
 **List backups:**
 
 ```bash
-sudo restic -r /mnt/backup/restic-podman snapshots
+sudo restic -r /mnt/backup/restic-podman-vm-pve0 snapshots
 ```
 
 **List files in a snapshot:**
