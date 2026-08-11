@@ -71,3 +71,31 @@ ansible-playbook --vault-id lab@prompt \
   -e restic_restore_target=/var/tmp/immich-restore \
   -e '{"restic_restore_include_paths":["/opt/podman/immich/upload"]}'
 ```
+
+## Vaultwarden Direct Restore
+
+After deploying Vaultwarden on the target, stop its user service and remove
+the empty or stale data directory. Restoring with `--target /` preserves the
+original `/opt/podman/vaultwarden/data` path without creating a nested path.
+
+```sh
+sudo -u podman XDG_RUNTIME_DIR=/run/user/$(id -u podman) \
+  systemctl --user stop vaultwarden.service
+
+sudo rm -rf /opt/podman/vaultwarden/data
+
+sudo RESTIC_PASSWORD_FILE=/root/.restic-password \
+  restic -r /mnt/backup/restic-podman restore SNAPSHOT_ID \
+  --target / \
+  --include /opt/podman/vaultwarden/data \
+  --exclude-xattr 'security.*'
+
+sudo chown -R podman:podman /opt/podman/vaultwarden/data
+sudo restorecon -RF /opt/podman/vaultwarden/data
+
+sudo -u podman XDG_RUNTIME_DIR=/run/user/$(id -u podman) \
+  systemctl --user start vaultwarden.service
+```
+
+Remove the destination directory before restoring because Restic adds and
+overwrites files but does not remove files that exist only on the target.
