@@ -1,7 +1,7 @@
 ---
 # TrueNAS REST API settings. Keep the API token outside inventory, for example
 # in the TRUENAS_API_TOKEN environment variable or an Ansible Vault variable.
-truenas_api_url: "https://{{ truenas_nfs_server }}"
+truenas_api_url: "https://truenas.{{ customer_domain }}"
 truenas_api_token: "{{ lookup('env', 'TRUENAS_API_TOKEN') | default('', true) }}"
 truenas_api_validate_certs: true
 

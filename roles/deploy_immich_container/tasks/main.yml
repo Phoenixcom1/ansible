@@ -26,6 +26,7 @@
     key: video
   register: video_group_info
   changed_when: false
+  when: immich_enable_hardware_acceleration | bool
 
 - name: Get render group info
   getent:
@@ -33,11 +34,13 @@
     key: render
   register: render_group_info
   changed_when: false
+  when: immich_enable_hardware_acceleration | bool
 
 - name: Extract video and render GIDs
   set_fact:
     video_gid: "{{ video_group_info.ansible_facts.getent_group.video[1] }}"
     render_gid: "{{ render_group_info.ansible_facts.getent_group.render[1] }}"
+  when: immich_enable_hardware_acceleration | bool
 
 - name: Add podman user to video group
   user:
@@ -45,6 +48,8 @@
     groups: video
     append: yes
   become: true
+  register: immich_video_group_membership
+  when: immich_enable_hardware_acceleration | bool
 
 - name: Add podman user to render group
   user:
@@ -52,20 +57,161 @@
     groups: render
     append: yes
   become: true
+  register: immich_render_group_membership
+  when: immich_enable_hardware_acceleration | bool
 
-# Calculate host UID for network mount (if enabled)
+- name: Enable lingering for podman user
+  command: loginctl enable-linger {{ podman_user }}
+  become: true
+  changed_when: false
+
+- name: Refresh the podman user manager after GPU group changes
+  command: loginctl terminate-user {{ podman_user }}
+  become: true
+  when:
+    - immich_enable_hardware_acceleration | bool
+    - immich_video_group_membership.changed or immich_render_group_membership.changed
+
+- name: Wait for the refreshed podman user manager
+  wait_for:
+    path: "/run/user/{{ immich_uid }}/bus"
+    state: started
+    timeout: 30
+  become: true
+  when:
+    - immich_enable_hardware_acceleration | bool
+    - immich_video_group_membership.changed or immich_render_group_membership.changed
+
+- name: Check for the configured GPU render device
+  stat:
+    path: "{{ immich_gpu_render_device }}"
+  register: immich_gpu_render_device_stat
+  when: immich_enable_hardware_acceleration | bool
+
+- name: Require a GPU render device for hardware acceleration
+  assert:
+    that:
+      - immich_gpu_render_device_stat.stat.exists
+      - immich_gpu_render_device_stat.stat.ischr
+    fail_msg: >-
+      {{ immich_gpu_render_device }} must be a GPU render device before enabling
+      immich_enable_hardware_acceleration. Disable acceleration or pass through
+      a supported GPU to this host.
+  when: immich_enable_hardware_acceleration | bool
+
+# Calculate the subordinate UID that rootless container UID 1000 maps to on the
+# host. CIFS maps the shared media tree to this identity.
 - name: Get subordinate UID range for podman user
   shell: "awk -F: '/^{{ podman_user }}:/ {print $2}' /etc/subuid"
   register: subuid_start
   changed_when: false
   check_mode: false
-  when: immich_enable_network_mount
+  when: immich_data_external | bool or immich_enable_network_mount
 
 - name: Calculate host UID that maps to container user (UID 1000)
   set_fact:
     immich_host_uid: "{{ (subuid_start.stdout | default('0') | int) + 999 }}"
     immich_host_gid: "{{ (subuid_start.stdout | default('0') | int) + 999 }}"
-  when: immich_enable_network_mount and subuid_start.stdout | length > 0
+  when:
+    - immich_data_external | bool or immich_enable_network_mount
+    - subuid_start.stdout | length > 0
+
+- name: Require Immich external SMB password
+  assert:
+    that: immich_external_data_password | string | length > 0
+    fail_msg: >-
+      Define truenas_immich_smb_password in vaulted inventory before enabling
+      external Immich SMB storage.
+  no_log: true
+  when: immich_data_external | bool
+
+- name: Install CIFS utilities for external Immich storage
+  package:
+    name: cifs-utils
+    state: present
+  become: true
+  when: immich_data_external | bool
+
+- name: Check whether the SELinux Samba access boolean is available
+  command:
+    argv:
+      - getsebool
+      - virt_use_samba
+  register: immich_selinux_samba_access
+  changed_when: false
+  failed_when: false
+  become: true
+  when:
+    - immich_data_external | bool
+    - ansible_facts['os_family'] == 'RedHat'
+
+- name: Allow SELinux containers to access CIFS media storage
+  ansible.posix.seboolean:
+    name: virt_use_samba
+    state: true
+    persistent: true
+  become: true
+  when:
+    - immich_data_external | bool
+    - ansible_facts['os_family'] == 'RedHat'
+    - immich_selinux_samba_access.rc == 0
+
+- name: Create Immich external SMB credentials
+  copy:
+    dest: "{{ immich_external_data_credentials }}"
+    content: |
+      username={{ immich_external_data_username }}
+      password={{ immich_external_data_password }}
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  no_log: true
+  when: immich_data_external | bool
+
+- name: Check the current Immich media mount type
+  command:
+    argv:
+      - findmnt
+      - --noheadings
+      - --output
+      - FSTYPE
+      - --target
+      - "{{ immich_upload_dir }}"
+  register: immich_current_media_mount
+  changed_when: false
+  failed_when: false
+  when: immich_data_external | bool
+
+- name: Remove a stale non-CIFS Immich media mount
+  ansible.posix.mount:
+    path: "{{ immich_upload_dir }}"
+    state: absent
+  become: true
+  when:
+    - immich_data_external | bool
+    - immich_current_media_mount.rc == 0
+    - immich_current_media_mount.stdout | trim != immich_external_data_fstype
+
+- name: Create Immich external media mount directory
+  file:
+    path: "{{ immich_upload_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  when: immich_data_external | bool
+
+- name: Mount external Immich media storage
+  ansible.posix.mount:
+    path: "{{ immich_upload_dir }}"
+    src: "{{ immich_external_data_source }}"
+    fstype: "{{ immich_external_data_fstype }}"
+    opts: "{{ immich_external_data_mount_options }}"
+    state: mounted
+  become: true
+  when: immich_data_external | bool
 
 # Network mount setup (optional)
 - name: Install CIFS utilities if using SMB mount
@@ -74,7 +220,7 @@
     state: present
     update_cache: yes
   become: true
-  when: immich_enable_network_mount and immich_network_mount_type == "cifs"
+  when: immich_enable_network_mount
 
 - name: Create library mount directory
   file:
@@ -90,7 +236,7 @@
   mount:
     path: "{{ immich_network_mount_target }}"
     src: "{{ immich_network_mount_source }}"
-    fstype: "{{ immich_network_mount_type }}"
+    fstype: cifs
     opts: "{{ immich_network_mount_options }}"
     state: mounted
     dump: 0
@@ -116,22 +262,74 @@
     group: "{{ podman_user }}"
     mode: "0755"
   become: true
-  loop:
-    - "{{ immich_upload_dir }}"
-    - "{{ immich_db_dir }}"
-    - "{{ immich_model_cache_dir }}"
-    - "{{ immich_redis_dir }}"
+  loop: >-
+    {{ ([] if (immich_data_external | bool) else [immich_upload_dir]) +
+       [immich_db_dir, immich_model_cache_dir, immich_redis_dir] }}
 
-# Verify env file exists
-- name: Check if Immich env file exists
-  stat:
-    path: "{{ immich_env_file }}"
-  register: immich_env_stat
+- name: Validate Immich database password
+  assert:
+    that:
+      - immich_db_password | string | length > 0
+    fail_msg: >-
+      Provide immich_db_password through an ignored vaulted inventory or the
+      IMMICH_DB_PASSWORD environment variable.
+  no_log: true
 
-- name: Warn if env file doesn't exist
-  debug:
-    msg: "WARNING: {{ immich_env_file }} does not exist. Please create it with required secrets (DB_DATABASE_NAME, DB_USERNAME, DB_PASSWORD, etc.)"
-  when: not immich_env_stat.stat.exists
+- name: Create or update Immich environment file
+  copy:
+    dest: "{{ immich_env_file }}"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0600"
+    content: |
+      DB_DATABASE_NAME={{ immich_db_name }}
+      DB_USERNAME={{ immich_db_user }}
+      DB_PASSWORD={{ immich_db_password }}
+      TZ={{ immich_timezone }}
+      LOG_LEVEL={{ immich_log_level }}
+  become: true
+  no_log: true
+
+- name: Verify the external Immich upload directory mount type
+  command:
+    argv:
+      - findmnt
+      - --noheadings
+      - --output
+      - FSTYPE
+      - --target
+      - "{{ immich_upload_dir }}"
+  register: immich_external_data_mount
+  changed_when: false
+  when: immich_data_external | bool
+
+- name: Require the configured mount type for external Immich uploads
+  assert:
+    that: immich_external_data_mount.stdout | trim == immich_external_data_fstype
+    fail_msg: "{{ immich_upload_dir }} must be an active {{ immich_external_data_fstype }} mount before Immich uses it."
+  when: immich_data_external | bool
+
+- name: Verify the Immich container user can write to external uploads
+  command:
+    argv:
+      - podman
+      - run
+      - --rm
+      - --user
+      - "1000:1000"
+      - --entrypoint
+      - /bin/sh
+      - --volume
+      - "{{ immich_upload_dir }}:/usr/src/app/upload"
+      - "ghcr.io/immich-app/immich-server:{{ immich_version }}"
+      - -c
+      - >-
+        touch /usr/src/app/upload/.ansible-immich-container-write-test &&
+        rm /usr/src/app/upload/.ansible-immich-container-write-test
+  become: true
+  become_user: "{{ podman_user }}"
+  changed_when: false
+  when: immich_data_check_container_write | bool
 
 # Deploy Quadlet files
 - name: Create quadlet directory if not exists
@@ -226,27 +424,14 @@
 - name: Deploy nginx configuration for Immich
   template:
     src: immich.conf.j2
-    dest: "/etc/nginx/sites-available/immich.conf"
+    dest: "{{ nginx_conf_dir }}/immich.conf"
     owner: root
     group: root
     mode: "0644"
   become: true
   notify: Reload nginx
 
-- name: Enable nginx site for Immich
-  file:
-    src: "/etc/nginx/sites-available/immich.conf"
-    dest: "/etc/nginx/sites-enabled/immich.conf"
-    state: link
-  become: true
-  notify: Reload nginx
-
-# Enable lingering and manage services
-- name: Enable lingering for podman user
-  command: loginctl enable-linger {{ podman_user }}
-  become: true
-  changed_when: false
-
+# Manage services
 - name: Reload systemd user daemon (Quadlet generation)
   systemd:
     daemon_reload: true

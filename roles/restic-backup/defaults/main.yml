@@ -129,9 +129,11 @@ restic_keep_monthly: 12
 # provisioned by truenas_smb_provision.
 restic_nas_enabled: true
 restic_nas_fstype: cifs
-restic_nas_source: "//{{ truenas_smb_server }}/{{ truenas_smb_backup_share_name }}"
+restic_nas_server: "truenas.{{ customer_domain }}"
+restic_nas_share_name: "podman-backups"
+restic_nas_source: "//{{ restic_nas_server }}/{{ restic_nas_share_name }}"
 restic_nas_mount_point: "/mnt/backup"
 restic_nas_credentials: "/root/.smb_restic_creds"
-restic_nas_username: "{{ truenas_smb_backup_username }}"
-restic_nas_password: "{{ truenas_smb_backup_password }}"
+restic_nas_username: "restic-backup"
+restic_nas_password: "{{ truenas_restic_smb_password | default('', true) }}"
 restic_nas_mount_options: "vers=3.1.1,_netdev,credentials={{ restic_nas_credentials }},uid=0,gid=0,file_mode=0600,dir_mode=0700"

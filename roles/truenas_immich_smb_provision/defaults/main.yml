@@ -1,0 +1,10 @@
+---
+truenas_immich_smb_dataset: "tank/apps/immich-data"
+truenas_immich_smb_export_path: "/mnt/tank/apps/immich-data"
+truenas_immich_smb_share_name: "immich-data"
+truenas_immich_smb_username: "immich-media"
+truenas_immich_smb_password: ""
+truenas_immich_smb_server: "truenas.{{ customer_domain }}"
+truenas_immich_smb_api_url: "https://{{ truenas_immich_smb_server }}"
+truenas_immich_smb_api_token: "{{ truenas_api_token }}"
+truenas_immich_smb_api_validate_certs: "{{ truenas_api_validate_certs }}"

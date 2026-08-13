@@ -7,11 +7,11 @@ nextcloud_repo_path: "{{ podman_service_dir }}/nextcloud"
 nextcloud_html_dir: "{{ nextcloud_repo_path }}/html"
 nextcloud_env_file: "{{ nextcloud_repo_path }}/nextcloud.env"
 nextcloud_db_dir: "{{ nextcloud_repo_path }}/postgres"
-# Use a dedicated external data mount when configured for the host.
-nextcloud_data_dir: "{{ nextcloud_html_dir }}/data"
-nextcloud_data_external: false
+# Use the dedicated TrueNAS NFS mount for Nextcloud data.
+nextcloud_data_dir: "/srv/containers/nextcloud-data"
+nextcloud_data_external: true
 # Optionally verify the rootless www-data mapping can write to external storage.
-nextcloud_data_check_container_write: false
+nextcloud_data_check_container_write: true
 # Map the rootless podman user to Nextcloud's www-data UID/GID for NFS access.
 nextcloud_external_data_userns: "keep-id:uid=33,gid=33"
 

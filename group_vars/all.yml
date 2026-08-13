@@ -5,8 +5,11 @@
 podman_username: podman
 podman_service_dir: /opt/podman
 
-# Domain currently used by the Nextcloud customer deployment.
+# Per-client domain. Override this for each client environment.
 customer_domain: "kerberos.bitsnbyt.es"
+
+# Verify the TrueNAS API certificate for all storage provisioners.
+truenas_api_validate_certs: true
 
 # SSL certificate paths (used by nginx reverse proxy for all services)
 # Wildcard certificate locations deployed by your firewall

@@ -29,32 +29,14 @@ all:
       local_username: "podman_vm"
       ssl_cert: "/etc/ssl/wildcard/kerberos.bitsnbyt.es/fullchain.pem"
       ssl_key: "/etc/ssl/wildcard/kerberos.bitsnbyt.es/key.pem"
-      # The NFS hostname follows the Nextcloud customer DNS domain. Store the API token in
-      # the ignored companion inventory or provide TRUENAS_API_TOKEN.
-      truenas_nfs_server: "truenas.{{ dns_search_domains | first }}"
+      # Store the API token in the ignored companion inventory or provide
+      # TRUENAS_API_TOKEN.
+      truenas_nfs_server: "truenas.{{ customer_domain }}"
       truenas_nfs_mounts:
         - dataset: "tank/apps/nextcloud-data"
           export_path: "/mnt/tank/apps/nextcloud-data"
           path: "/srv/containers/nextcloud-data"
           encrypted: true
-        - dataset: "tank/apps/immich-data"
-          export_path: "/mnt/tank/apps/immich-data"
-          path: "/srv/containers/immich-data"
-          encrypted: true
-          # Skip NFS work while bringing up the SMB-backed Vaultwarden backup.
-          # Re-enable before deploying services that consume these NFS mounts.
-          truenas_nfs_enabled: false
-      # Use the dedicated NFS dataset for Nextcloud data.
-      nextcloud_data_external: true
-      nextcloud_data_check_container_write: true
-      nextcloud_data_dir: "/srv/containers/nextcloud-data"
-      # Store Immich's large media files on the dedicated TrueNAS NFS dataset.
-      immich_enabled: true
-      immich_domain: "immich.{{ customer_domain }}"
-      immich_client_url: "https://{{ immich_domain }}"
-      immich_data_external: true
-      immich_data_check_container_write: true
-      immich_upload_dir: "/srv/containers/immich-data"
       restic_backup_enabled_services:
         - vaultwarden
       #vlan_id: 107

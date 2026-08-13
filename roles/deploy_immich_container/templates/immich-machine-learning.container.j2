@@ -11,7 +11,7 @@ After={{ immich_network }}-network.service immich-postgres.service immich-redis.
 Wants={{ immich_network }}-network.service immich-postgres.service immich-redis.service
 
 [Container]
-Image=ghcr.io/immich-app/immich-machine-learning:{{ immich_version }}-openvino
+Image={{ immich_ml_image }}
 ContainerName={{ immich_ml_container }}
 AutoUpdate=registry
 
@@ -23,11 +23,12 @@ Environment=MACHINE_LEARNING_WORKERS={{ immich_ml_workers }}
 Environment=MACHINE_LEARNING_MODEL_TTL={{ immich_ml_model_ttl }}
 
 # ML Hardware acceleration with OpenVINO (Intel GPU)
-AddDevice=/dev/dri
+{% if immich_enable_hardware_acceleration | bool %}
+AddDevice={{ immich_gpu_device }}
 
-# GID mapping for GPU access
-# Maps host groups video({{ video_gid }}) and render({{ render_gid }}) into container namespace
+# GPU group access
 PodmanArgs=--gidmap=0:0:1 --gidmap=1:3:{{ video_gid | int - 1 }} --gidmap={{ video_gid }}:1:1 --gidmap={{ video_gid | int + 1 }}:{{ video_gid | int + 2 }}:{{ render_gid | int - video_gid | int - 1 }} --gidmap={{ render_gid }}:2:1 --gidmap={{ render_gid | int + 1 }}:{{ render_gid | int + 1 }}:{{ 65536 - render_gid | int }} --group-add={{ video_gid }} --group-add={{ render_gid }}
+{% endif %}
 
 # Volume for model cache
 Volume={{ immich_model_cache_dir }}:/cache:Z

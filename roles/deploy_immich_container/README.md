@@ -13,7 +13,7 @@ Deploys Immich photo and video management platform using **Podman Quadlets** wit
 - Background microservices for processing
 - **Podman Quadlet** for modern systemd integration
 - **Automatic container updates** via `AutoUpdate=registry`
-- Network mount support for external photo libraries (CIFS/SMB or NFS)
+- SMB mount support for external photo libraries
 - Nginx reverse proxy with SSL
 - Coordinated service startup via systemd target
 
@@ -45,7 +45,7 @@ immich-machine-learning (optional, can be disabled)
 
 ```
 /opt/podman/immich/
-├── upload/          # Uploaded photos and videos
+├── upload/          # Uploaded photos and videos (or an external mount)
 ├── postgres/        # PostgreSQL database
 ├── model-cache/     # ML models cache
 ├── redis/           # Redis data (ephemeral)
@@ -87,14 +87,13 @@ Systemd automatically generates service units:
 ```yaml
 # Container settings
 immich_repo_path: "/opt/podman/immich"
-immich_upload_dir: "/opt/podman/immich/upload"
+immich_upload_dir: "/srv/containers/immich-data"
 immich_db_dir: "/opt/podman/immich/postgres"
 immich_model_cache_dir: "/opt/podman/immich/model-cache"
 
 # Network mount (optional)
 immich_enable_network_mount: false
 immich_network_mount_source: "//datenbunker.local/Photos"
-immich_network_mount_type: "cifs"
 immich_network_mount_target: "/opt/podman/immich/library"
 
 # Application
@@ -132,19 +131,11 @@ immich_network: immich_net
 Create `/opt/podman/immich/immich.env` with required secrets:
 
 ```bash
-# Database (required)
-DB_DATABASE_NAME=immich
-DB_USERNAME=postgres
-DB_PASSWORD=your_secure_database_password
-
-# Optional: Timezone
-TZ=Europe/Berlin
-
-# Optional: Logging
-LOG_LEVEL=log
+# Store this in an ignored vaulted inventory or provide it through the environment.
+immich_db_password: your_secure_database_password
 ```
 
-**Note:** The database configuration uses `DB_USERNAME=postgres` (not `immich`) to match the official Immich postgres image defaults. All three database environment variables are required.
+**Note:** The role writes `immich.env` with `DB_USERNAME=postgres` to match the official Immich postgres image defaults.
 
 **Security:**
 
@@ -181,20 +172,37 @@ sudo chmod 600 /opt/podman/immich/immich.env
    ```yaml
    immich_enable_network_mount: true
    immich_network_mount_source: "//nas-server.local/Photos"
-   immich_network_mount_type: "cifs"
    immich_smbcredentials_file: "/root/.immich_smbcreds"
    ```
 
 **UID/GID Mapping:**
 The role automatically calculates the correct host UID/GID for the SMB mount based on the podman user's subordinate UID range (`/etc/subuid`). This ensures that container UID 1000 (immich user) can access the mounted files.
 
-### NFS Mount
+### Dedicated SMB Media Storage
+
+The target deployment uses the existing `tank/apps/immich-data` dataset through
+the repeatable `truenas_immich_smb_provision` role. It creates an `immich-data`
+SMB share and an `immich-media` account without recreating the dataset. Add this
+to the vaulted companion inventory:
 
 ```yaml
-immich_enable_network_mount: true
-immich_network_mount_source: "192.168.1.100:/export/Photos"
-immich_network_mount_type: "nfs"
-immich_network_mount_options: "defaults,_netdev"
+truenas_immich_smb_password: "use-a-long-unique-password"
+```
+
+The role mounts the share at `immich_upload_dir`, mapping it to the rootless
+container's normal subordinate UID. The media mount does not require
+`UserNS=keep-id`. GPU GID mapping remains independent of SMB media storage.
+The provisioner applies the SMB account ownership recursively to the existing
+media tree; stop Immich before the first conversion run.
+
+### Public Client URL
+
+Set `immich_client_url` to the externally reachable HTTPS URL. It is passed to
+Immich as `IMMICH_PUBLIC_URL`:
+
+```yaml
+immich_domain: "immich.example.com"
+immich_client_url: "https://immich.example.com"
 ```
 
 ### External Library Usage
@@ -256,6 +264,25 @@ immich_ml_model_ttl: 600 # Keep models loaded longer (seconds)
 
 ## Hardware Acceleration
 
+Hardware acceleration is optional and disabled by default. It is independent of
+external SMB storage: `immich_data_external` controls the media mount, while
+`immich_enable_hardware_acceleration` controls `/dev/dri` and GPU group
+mappings.
+
+Enable it only when the VM exposes a real GPU render node, such as
+`/dev/dri/renderD128`. A QEMU Bochs display adapter that exposes only `card0`
+is not suitable for transcoding or OpenVINO.
+
+```yaml
+immich_enable_hardware_acceleration: true
+```
+
+For a deployment with a real GPU, the role applies the original explicit
+`--gidmap` and `--group-add` options for the host's `video` and `render` groups
+to every hardware-enabled container. The role requires `/dev/dri/renderD128` by
+default; override `immich_gpu_render_device` when a passed-through GPU uses
+another render-node number.
+
 ### Overview
 
 The role automatically configures hardware acceleration for:
@@ -274,7 +301,7 @@ The role automatically configures hardware acceleration for:
 **Video Transcoding (immich-server, immich-microservices):**
 
 - Containers access `/dev/dri` for GPU hardware
-- GID mapping ensures proper permissions in rootless Podman
+- Explicit GID maps expose the host `video` and `render` groups
 - Must be **enabled in Immich web UI**: Administration → Video Transcoding Settings → Hardware Acceleration → Select "Quick Sync (QSV)" or "VAAPI"
 
 **Machine Learning (immich-machine-learning):**
@@ -285,14 +312,15 @@ The role automatically configures hardware acceleration for:
 
 ### Configuration
 
-Hardware acceleration is **enabled by default** in the Quadlet templates. The role automatically:
+When enabled, the role automatically:
 
 1. Adds the podman user to `video` and `render` groups
 2. Passes `/dev/dri` device to containers
-3. Configures GID mapping for proper GPU access in rootless Podman
+3. Applies explicit GID maps and supplementary GPU groups for rootless access
 4. Uses OpenVINO-tagged ML image for GPU acceleration
 
-**No manual configuration needed** - just deploy and enable in the web UI for transcoding.
+Enable `immich_enable_hardware_acceleration` only after GPU passthrough and the
+render-device preflight succeed, then enable transcoding in the Immich web UI.
 
 ### Verification
 
@@ -358,7 +386,7 @@ If you need to disable hardware acceleration:
 
 1. **For transcoding**: Set to "Disabled" in Immich web UI
 2. **For ML**: Change the machine learning image from `-openvino` to standard (remove `-openvino` suffix from template)
-3. **Remove device access**: Comment out `AddDevice=/dev/dri` lines in Quadlet templates
+3. Set `immich_enable_hardware_acceleration: false`
 
 ## Service Management
 

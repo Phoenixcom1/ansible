@@ -9,6 +9,9 @@ Documentation=https://immich.app/docs
 PartOf={{ immich_systemd_target }}
 After={{ immich_network }}-network.service immich-postgres.service immich-redis.service
 Wants={{ immich_network }}-network.service immich-postgres.service immich-redis.service
+{% if immich_data_external | bool %}
+RequiresMountsFor={{ immich_upload_dir }}
+{% endif %}
 
 [Container]
 Image=ghcr.io/immich-app/immich-server:{{ immich_version }}
@@ -31,6 +34,7 @@ Environment=REDIS_PORT=6379
 # Immich configuration
 Environment=IMMICH_WEB_URL=http://{{ immich_server_container }}:{{ immich_internal_port }}
 Environment=IMMICH_SERVER_URL=http://{{ immich_server_container }}:{{ immich_internal_port }}
+Environment=IMMICH_PUBLIC_URL={{ immich_client_url }}
 
 # Feature flags
 Environment=IMMICH_MACHINE_LEARNING_URL=http://{{ immich_ml_container }}:3003
@@ -44,8 +48,9 @@ Environment=DISABLE_REVERSE_GEOCODING=false
 # Upload settings
 Environment=UPLOAD_LOCATION={{ immich_upload_dir }}
 
+{% if immich_enable_hardware_acceleration | bool %}
 # Hardware acceleration (HWACC)
-AddDevice=/dev/dri
+AddDevice={{ immich_gpu_device }}
 Environment=IMMICH_HWACCEL=true
 # For NVIDIA, uncomment the following lines:
 # AddDevice=/dev/nvidia0
@@ -57,10 +62,16 @@ Environment=IMMICH_HWACCEL=true
 # Maps host groups video({{ video_gid }}) and render({{ render_gid }}) into container namespace
 # Intermediate namespace: GID 1->video({{ video_gid }}), GID 2->render({{ render_gid }})
 # Container GIDs map to intermediate GIDs, which map to host GIDs
+# GPU group access
 PodmanArgs=--gidmap=0:0:1 --gidmap=1:3:{{ video_gid | int - 1 }} --gidmap={{ video_gid }}:1:1 --gidmap={{ video_gid | int + 1 }}:{{ video_gid | int + 2 }}:{{ render_gid | int - video_gid | int - 1 }} --gidmap={{ render_gid }}:2:1 --gidmap={{ render_gid | int + 1 }}:{{ render_gid | int + 1 }}:{{ 65536 - render_gid | int }} --group-add={{ video_gid }} --group-add={{ render_gid }}
+{% endif %}
 
 # Volumes
+{% if immich_data_external | bool %}
+Volume={{ immich_upload_dir }}:/usr/src/app/upload
+{% else %}
 Volume={{ immich_upload_dir }}:/usr/src/app/upload:Z
+{% endif %}
 Volume=/etc/localtime:/etc/localtime:ro
 {% if immich_enable_network_mount %}
 Volume={{ immich_network_mount_target }}:/usr/src/app/external:ro
