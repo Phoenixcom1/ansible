@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily Immich TrueNAS snapshot backup
+
+[Timer]
+OnCalendar={{ immich_snapshot_time }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

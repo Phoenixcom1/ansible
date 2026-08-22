@@ -1,0 +1,107 @@
+---
+- name: Validate Immich snapshot backup configuration
+  assert:
+    that:
+      - immich_snapshot_media_path | length > 0
+      - immich_snapshot_dataset | length > 0
+      - immich_snapshot_api_url | length > 0
+      - immich_snapshot_api_token | length > 0
+    fail_msg: >-
+      Define truenas_api_token and the Immich snapshot backup configuration
+      before enabling scheduled Immich snapshots.
+  no_log: true
+  when: immich_snapshot_enabled | bool
+
+- name: Install the Python WebSocket client for the TrueNAS snapshot request
+  package:
+    name: python3-websocket-client
+    state: present
+  become: true
+  when: immich_snapshot_enabled | bool
+
+- name: Create the Immich snapshot API token file
+  copy:
+    dest: "{{ immich_snapshot_api_token_file }}"
+    content: "{{ immich_snapshot_api_token }}\n"
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  no_log: true
+  when: immich_snapshot_enabled | bool
+
+- name: Create the snapshot backup scripts directory
+  file:
+    path: /opt/scripts
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  when: immich_snapshot_enabled | bool
+
+- name: Deploy the TrueNAS JSON-RPC snapshot helper
+  template:
+    src: truenas-jsonrpc-snapshot.py.j2
+    dest: /opt/scripts/truenas-jsonrpc-snapshot.py
+    owner: root
+    group: root
+    mode: "0750"
+  become: true
+  when: immich_snapshot_enabled | bool
+
+- name: Deploy the Immich snapshot backup script
+  template:
+    src: immich-snapshot-backup.sh.j2
+    dest: /opt/scripts/immich-snapshot-backup.sh
+    owner: root
+    group: root
+    mode: "0750"
+  become: true
+  when: immich_snapshot_enabled | bool
+
+- name: Deploy the Immich snapshot backup service
+  template:
+    src: immich-snapshot-backup.service.j2
+    dest: /etc/systemd/system/immich-snapshot-backup.service
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: immich_snapshot_service
+  when: immich_snapshot_enabled | bool
+
+- name: Deploy the Immich snapshot backup timer
+  template:
+    src: immich-snapshot-backup.timer.j2
+    dest: /etc/systemd/system/immich-snapshot-backup.timer
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: immich_snapshot_timer
+  when: immich_snapshot_enabled | bool
+
+- name: Reload the systemd daemon for Immich snapshot backup
+  systemd:
+    daemon_reload: true
+  become: true
+  when:
+    - immich_snapshot_enabled | bool
+    - immich_snapshot_service.changed or immich_snapshot_timer.changed
+
+- name: Enable and start the Immich snapshot backup timer
+  systemd:
+    name: immich-snapshot-backup.timer
+    enabled: true
+    state: started
+  become: true
+  when: immich_snapshot_enabled | bool
+
+- name: Disable the Immich snapshot backup timer when not enabled
+  systemd:
+    name: immich-snapshot-backup.timer
+    enabled: false
+    state: stopped
+  become: true
+  when: not (immich_snapshot_enabled | bool)

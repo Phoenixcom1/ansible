@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import ssl
+import sys
+
+import websocket
+
+JSONRPC_URL = {{ immich_snapshot_jsonrpc_url | to_json }}
+DATASET = {{ immich_snapshot_dataset | to_json }}
+TOKEN_FILE = {{ immich_snapshot_api_token_file | to_json }}
+VALIDATE_CERTS = {{ immich_snapshot_api_validate_certs | bool | ternary('True', 'False') }}
+
+
+def call(connection, request_id, method, params):
+    connection.send(
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "method": method,
+                "params": params,
+            }
+        )
+    )
+
+    while True:
+        response = json.loads(connection.recv())
+        if response.get("id") != request_id:
+            continue
+        if "error" in response:
+            raise RuntimeError(response["error"])
+        return response["result"]
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("snapshot_name")
+    arguments = parser.parse_args()
+
+    with open(TOKEN_FILE, encoding="utf-8") as token_file:
+        api_token = token_file.read().strip()
+
+    ssl_options = None
+    if not VALIDATE_CERTS:
+        ssl_options = {"cert_reqs": ssl.CERT_NONE}
+
+    connection = websocket.create_connection(JSONRPC_URL, sslopt=ssl_options)
+    try:
+        call(connection, 1, "auth.login_with_api_key", [api_token])
+        call(
+            connection,
+            2,
+            "pool.snapshot.create",
+            [
+                {
+                    "dataset": DATASET,
+                    "name": arguments.snapshot_name,
+                    "recursive": False,
+                }
+            ],
+        )
+    finally:
+        connection.close()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as error:
+        print(f"TrueNAS JSON-RPC snapshot request failed: {error}", file=sys.stderr)
+        sys.exit(1)

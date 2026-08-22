@@ -1,0 +1,22 @@
+---
+# Consistent Immich media snapshots on TrueNAS.
+immich_snapshot_enabled: true
+immich_snapshot_time: "*-*-* 01:00:00"
+immich_snapshot_media_path: "/srv/containers/immich-data"
+immich_snapshot_dataset: "tank/apps/immich-data"
+immich_snapshot_name_prefix: "immich-backup"
+immich_snapshot_dump_name: "immich-postgres.dump"
+immich_snapshot_podman_user: "{{ podman_username }}"
+immich_snapshot_systemd_target: "immich-stack.target"
+immich_snapshot_writer_units:
+  - immich-server.service
+  - immich-microservices.service
+  - immich-machine-learning.service
+immich_snapshot_postgres_container: "immich-postgres"
+immich_snapshot_database_name: "immich"
+immich_snapshot_database_user: "postgres"
+immich_snapshot_api_url: "https://truenas.{{ customer_domain }}"
+immich_snapshot_jsonrpc_url: "{{ immich_snapshot_api_url | regex_replace('^https', 'wss') }}/api/current"
+immich_snapshot_api_token: "{{ truenas_api_token | default('', true) }}"
+immich_snapshot_api_validate_certs: "{{ truenas_api_validate_certs }}"
+immich_snapshot_api_token_file: "/root/.immich_snapshot_truenas_api_token"

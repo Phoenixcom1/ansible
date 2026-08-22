@@ -35,7 +35,8 @@
     #- deploy_frigate_container
     #- role: truenas_smb_provision
     #  when: "'vaultwarden' in restic_backup_enabled_services"
-    - restic-backup
+    #- restic-backup
+    - immich-snapshot-backup
     #- role: restic-restore
     #  when: restic_restore_enabled | default(false) | bool
     #- deploy_whisper_container

@@ -1,0 +1,12 @@
+[Unit]
+Description=Create a consistent TrueNAS snapshot of Immich media and database dump
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/scripts/immich-snapshot-backup.sh
+TimeoutStartSec=900
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=immich-snapshot-backup

@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+podman_user={{ immich_snapshot_podman_user | quote }}
+runtime_dir="/run/user/$(id -u "$podman_user")"
+media_path={{ immich_snapshot_media_path | quote }}
+dump_path="$media_path/{{ immich_snapshot_dump_name }}"
+temporary_dump_path="$dump_path.tmp"
+snapshot_name="{{ immich_snapshot_name_prefix }}-$(date -u +%Y%m%dT%H%M%SZ)"
+
+run_as_podman() {
+  runuser -u "$podman_user" -- env XDG_RUNTIME_DIR="$runtime_dir" "$@"
+}
+
+restart_stack() {
+  run_as_podman systemctl --user start {{ immich_snapshot_systemd_target | quote }}
+}
+
+trap restart_stack EXIT
+
+run_as_podman systemctl --user stop {{ immich_snapshot_writer_units | join(' ') }}
+run_as_podman podman exec {{ immich_snapshot_postgres_container | quote }} \
+  pg_dump -U {{ immich_snapshot_database_user | quote }} \
+  -d {{ immich_snapshot_database_name | quote }} -Fc > "$temporary_dump_path"
+mv -f "$temporary_dump_path" "$dump_path"
+
+create_truenas_snapshot() {
+  python3 /opt/scripts/truenas-jsonrpc-snapshot.py "$1"
+}
+
+create_truenas_snapshot "$snapshot_name"
