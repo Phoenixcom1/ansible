@@ -31,16 +31,6 @@
   become: true
   when: not vaultwarden_config_stat.stat.exists
 
-# Create the isolated network for vaultwarden
-- name: Create isolated vaultwarden network
-  command: podman network create {{ vaultwarden_network }}
-  become: true
-  become_user: "{{ podman_user }}"
-  register: vaultwarden_network_result
-  changed_when: "'Created' in vaultwarden_network_result.stdout or 'already exists' not in vaultwarden_network_result.stderr"
-  failed_when: vaultwarden_network_result.rc != 0 and 'already exists' not in vaultwarden_network_result.stderr
-  ignore_errors: true
-
 # Create Quadlet directory (Podman systemd units)
 - name: Create Quadlet directory for podman user
   file:
@@ -49,6 +39,15 @@
     owner: "{{ podman_user }}"
     group: "{{ podman_user }}"
     mode: "0755"
+  become: true
+
+- name: Deploy Vaultwarden network Quadlet
+  template:
+    src: vaultwarden.network.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/{{ vaultwarden_network }}.network"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
   become: true
 
 # Deploy Quadlet container file

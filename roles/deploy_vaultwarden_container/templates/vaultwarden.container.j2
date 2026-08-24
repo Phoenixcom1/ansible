@@ -16,8 +16,8 @@ Image=docker.io/vaultwarden/server:1.37.0
 # AutoUpdate intentionally disabled for manual control
 ContainerName=vaultwarden
 
-# Network (isolated)
-Network={{ vaultwarden_network }}
+# Network (isolated Quadlet-managed bridge)
+Network={{ vaultwarden_network }}.network
 PublishPort=127.0.0.1:{{ vaultwarden_port }}:80/tcp
 
 # Volumes
