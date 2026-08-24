@@ -141,3 +141,12 @@
     validate_certs: "{{ truenas_immich_smb_api_validate_certs }}"
     status_code: [200]
   no_log: true
+
+- name: Configure TrueNAS periodic snapshots for the Immich dataset
+  include_role:
+    name: truenas_snapshot_retention
+  vars:
+    truenas_snapshot_retention_api_url: "{{ truenas_immich_smb_api_url }}"
+    truenas_snapshot_retention_api_token: "{{ truenas_immich_smb_api_token }}"
+    truenas_snapshot_retention_api_validate_certs: "{{ truenas_immich_smb_api_validate_certs }}"
+    truenas_snapshot_retention_policies: "{{ truenas_immich_smb_snapshot_policies }}"

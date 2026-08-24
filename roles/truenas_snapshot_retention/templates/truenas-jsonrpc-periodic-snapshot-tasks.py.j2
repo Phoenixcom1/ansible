@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+import json
+import ssl
+import sys
+
+import websocket
+
+JSONRPC_URL = {{ truenas_snapshot_retention_jsonrpc_url | to_json }}
+TOKEN_FILE = {{ truenas_snapshot_retention_api_token_file | to_json }}
+VALIDATE_CERTS = {{ truenas_snapshot_retention_api_validate_certs | bool | ternary('True', 'False') }}
+
+SCHEDULES = {
+    "hourly": {"minute": "5", "hour": "*", "dom": "*", "month": "*", "dow": "*"},
+    "daily": {"minute": "10", "hour": "0", "dom": "*", "month": "*", "dow": "*"},
+    "weekly": {"minute": "15", "hour": "0", "dom": "*", "month": "*", "dow": "1"},
+    "monthly": {"minute": "20", "hour": "0", "dom": "1", "month": "*", "dow": "*"},
+}
+
+LIFETIME_UNITS = {
+    "hourly": "HOUR",
+    "daily": "DAY",
+    "weekly": "WEEK",
+    "monthly": "MONTH",
+}
+
+
+def call(connection, request_id, method, params):
+    connection.send(json.dumps({
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": method,
+        "params": params,
+    }))
+
+    while True:
+        response = json.loads(connection.recv())
+        if response.get("id") != request_id:
+            continue
+        if "error" in response:
+            raise RuntimeError(response["error"])
+        return response["result"]
+
+
+def desired_task(policy, cadence, keep):
+    if cadence not in SCHEDULES:
+        raise ValueError(f"Unsupported snapshot cadence: {cadence}")
+    if not isinstance(keep, int) or keep < 1:
+        raise ValueError(f"Retention for {policy['dataset']} {cadence} must be a positive integer")
+
+    name = f"ansible-{policy['name']}-{cadence}"
+    return {
+        "dataset": policy["dataset"],
+        "recursive": False,
+        "exclude": [],
+        "naming_schema": f"{name}-%Y%m%dT%H%M%S",
+        "schedule": SCHEDULES[cadence],
+        "lifetime_value": keep,
+        "lifetime_unit": LIFETIME_UNITS[cadence],
+        "enabled": True,
+    }
+
+
+def main():
+    if len(sys.argv) != 2:
+        raise ValueError("Usage: truenas-jsonrpc-periodic-snapshot-tasks.py POLICY_FILE")
+
+    with open(sys.argv[1], encoding="utf-8") as policy_file:
+        policies = json.load(policy_file)
+    with open(TOKEN_FILE, encoding="utf-8") as token_file:
+        api_token = token_file.read().strip()
+
+    ssl_options = None
+    if not VALIDATE_CERTS:
+        ssl_options = {"cert_reqs": ssl.CERT_NONE}
+
+    connection = websocket.create_connection(JSONRPC_URL, sslopt=ssl_options)
+    try:
+        request_id = 1
+        call(connection, request_id, "auth.login_with_api_key", [api_token])
+        request_id += 1
+        existing_tasks = call(connection, request_id, "pool.snapshottask.query", [[], {}])
+        request_id += 1
+
+        existing_by_schema = {
+            task["naming_schema"]: task
+            for task in existing_tasks
+            if task.get("naming_schema", "").startswith("ansible-")
+        }
+
+        changes = []
+        for policy in policies:
+            for cadence, keep in policy["retention"].items():
+                desired = desired_task(policy, cadence, keep)
+                existing = existing_by_schema.get(desired["naming_schema"])
+                if existing is None:
+                    call(connection, request_id, "pool.snapshottask.create", [desired])
+                    changes.append(f"created {desired['naming_schema']}")
+                elif any(existing.get(key) != value for key, value in desired.items()):
+                    call(connection, request_id, "pool.snapshottask.update", [existing["id"], desired])
+                    changes.append(f"updated {desired['naming_schema']}")
+                request_id += 1
+
+        print("changed: " + ", ".join(changes) if changes else "unchanged")
+    finally:
+        connection.close()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as error:
+        print(f"TrueNAS periodic snapshot retention request failed: {error}", file=sys.stderr)
+        sys.exit(1)

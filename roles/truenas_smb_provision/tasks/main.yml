@@ -166,3 +166,12 @@
     validate_certs: "{{ truenas_smb_api_validate_certs }}"
     status_code: [200]
   no_log: true
+
+- name: Configure TrueNAS periodic snapshots for the Restic backup dataset
+  include_role:
+    name: truenas_snapshot_retention
+  vars:
+    truenas_snapshot_retention_api_url: "{{ truenas_smb_api_url }}"
+    truenas_snapshot_retention_api_token: "{{ truenas_smb_api_token }}"
+    truenas_snapshot_retention_api_validate_certs: "{{ truenas_smb_api_validate_certs }}"
+    truenas_snapshot_retention_policies: "{{ truenas_smb_backup_snapshot_policies }}"

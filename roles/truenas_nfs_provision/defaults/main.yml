@@ -19,3 +19,13 @@ truenas_nfs_dataset_encryption_pbkdf2iters: 350000
 # Dedicated container-data datasets use the Fedora podman user's numeric IDs.
 truenas_nfs_manage_dataset_permissions: true
 truenas_nfs_dataset_mode: "0770"
+
+# Policies are applied only when their dataset is present in truenas_nfs_mounts.
+truenas_nfs_snapshot_retention_policies:
+  - name: nextcloud
+    dataset: "tank/apps/nextcloud-data"
+    retention:
+      hourly: 24
+      daily: 14
+      weekly: 8
+      monthly: 12

@@ -237,3 +237,18 @@
     status_code: [200]
   when: truenas_nfs_provision_shares | length > 0
   no_log: true
+
+- name: Select periodic snapshot policies for managed datasets
+  set_fact:
+    truenas_nfs_managed_snapshot_policies: >-
+      {{ truenas_nfs_snapshot_retention_policies
+         | selectattr('dataset', 'in', truenas_nfs_provision_shares | map(attribute='dataset') | list)
+         | list }}
+  when: truenas_nfs_provision_shares | length > 0
+
+- name: Configure TrueNAS periodic snapshots for managed NFS datasets
+  include_role:
+    name: truenas_snapshot_retention
+  vars:
+    truenas_snapshot_retention_policies: "{{ truenas_nfs_managed_snapshot_policies }}"
+  when: truenas_nfs_managed_snapshot_policies | default([]) | length > 0

@@ -1,0 +1,59 @@
+- name: Validate TrueNAS periodic snapshot retention configuration
+  assert:
+    that:
+      - truenas_snapshot_retention_api_token | length > 0
+      - truenas_snapshot_retention_policies | length > 0
+    fail_msg: >-
+      Define truenas_api_token and at least one periodic snapshot retention
+      policy before enabling TrueNAS snapshot retention management.
+  no_log: true
+  when: truenas_snapshot_retention_enabled | bool
+
+- name: Install the Python WebSocket client for TrueNAS snapshot retention
+  package:
+    name: python3-websocket-client
+    state: present
+  become: true
+  when: truenas_snapshot_retention_enabled | bool
+
+- name: Create the TrueNAS snapshot retention API token file
+  copy:
+    dest: "{{ truenas_snapshot_retention_api_token_file }}"
+    content: "{{ truenas_snapshot_retention_api_token }}\n"
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  no_log: true
+  when: truenas_snapshot_retention_enabled | bool
+
+- name: Write TrueNAS periodic snapshot retention policies
+  copy:
+    dest: "{{ truenas_snapshot_retention_policy_file }}"
+    content: "{{ truenas_snapshot_retention_policies | to_nice_json }}\n"
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  when: truenas_snapshot_retention_enabled | bool
+
+- name: Deploy the TrueNAS periodic snapshot retention helper
+  template:
+    src: truenas-jsonrpc-periodic-snapshot-tasks.py.j2
+    dest: /opt/scripts/truenas-jsonrpc-periodic-snapshot-tasks.py
+    owner: root
+    group: root
+    mode: "0750"
+  become: true
+  when: truenas_snapshot_retention_enabled | bool
+
+- name: Apply TrueNAS periodic snapshot retention policies
+  command:
+    argv:
+      - python3
+      - /opt/scripts/truenas-jsonrpc-periodic-snapshot-tasks.py
+      - "{{ truenas_snapshot_retention_policy_file }}"
+  become: true
+  register: truenas_snapshot_retention_result
+  changed_when: "truenas_snapshot_retention_result.stdout.startswith('changed:')"
+  when: truenas_snapshot_retention_enabled | bool

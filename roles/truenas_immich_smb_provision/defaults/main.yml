@@ -8,3 +8,10 @@ truenas_immich_smb_server: "truenas.{{ customer_domain }}"
 truenas_immich_smb_api_url: "https://{{ truenas_immich_smb_server }}"
 truenas_immich_smb_api_token: "{{ truenas_api_token }}"
 truenas_immich_smb_api_validate_certs: "{{ truenas_api_validate_certs }}"
+truenas_immich_smb_snapshot_retention:
+  daily: 30
+  monthly: 12
+truenas_immich_smb_snapshot_policies:
+  - name: immich
+    dataset: "{{ truenas_immich_smb_dataset }}"
+    retention: "{{ truenas_immich_smb_snapshot_retention }}"

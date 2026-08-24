@@ -11,3 +11,12 @@ truenas_smb_api_validate_certs: "{{ truenas_api_validate_certs }}"
 truenas_smb_dataset_encryption_passphrase: "{{ truenas_nfs_dataset_encryption_passphrase }}"
 truenas_smb_dataset_encryption_algorithm: "{{ truenas_nfs_dataset_encryption_algorithm }}"
 truenas_smb_dataset_encryption_pbkdf2iters: "{{ truenas_nfs_dataset_encryption_pbkdf2iters }}"
+truenas_smb_backup_snapshot_retention: { daily: 14, weekly: 8, monthly: 12 }
+truenas_smb_backup_snapshot_policies:
+  [
+    {
+      name: podman-backups,
+      dataset: "{{ truenas_smb_backup_dataset }}",
+      retention: "{{ truenas_smb_backup_snapshot_retention }}",
+    },
+  ]
