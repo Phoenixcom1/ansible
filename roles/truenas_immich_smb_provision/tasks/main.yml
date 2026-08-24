@@ -4,143 +4,37 @@
     that:
       - truenas_immich_smb_api_token | length > 0
       - truenas_immich_smb_password | length > 0
-    fail_msg: >-
-      Define truenas_api_token and truenas_immich_smb_password in vaulted
-      inventory before enabling Immich SMB storage.
   no_log: true
 
-- name: Look up the existing TrueNAS Immich dataset
-  uri:
-    url: "{{ truenas_immich_smb_api_url }}/api/v2.0/pool/dataset/id/{{ truenas_immich_smb_dataset | replace('/', '%2F') }}"
-    method: GET
-    headers:
-      Authorization: "Bearer {{ truenas_immich_smb_api_token }}"
-    validate_certs: "{{ truenas_immich_smb_api_validate_certs }}"
-    status_code: [200]
-  no_log: true
-
-- name: Look up the TrueNAS Immich SMB account
-  uri:
-    url: "{{ truenas_immich_smb_api_url }}/api/v2.0/user?username={{ truenas_immich_smb_username }}"
-    method: GET
-    headers:
-      Authorization: "Bearer {{ truenas_immich_smb_api_token }}"
-    validate_certs: "{{ truenas_immich_smb_api_validate_certs }}"
-    status_code: [200]
-  register: truenas_immich_smb_user
-  no_log: true
-
-- name: Create the TrueNAS Immich SMB account
-  uri:
-    url: "{{ truenas_immich_smb_api_url }}/api/v2.0/user"
-    method: POST
-    headers:
-      Authorization: "Bearer {{ truenas_immich_smb_api_token }}"
-      Content-Type: application/json
-    body_format: json
-    body:
-      username: "{{ truenas_immich_smb_username }}"
-      full_name: "Immich media account"
-      group_create: true
-      password: "{{ truenas_immich_smb_password }}"
-      smb: true
-    validate_certs: "{{ truenas_immich_smb_api_validate_certs }}"
-    status_code: [200]
-  when: truenas_immich_smb_user.json | length == 0
-  no_log: true
-
-- name: Get the provisioned TrueNAS Immich SMB account
-  uri:
-    url: "{{ truenas_immich_smb_api_url }}/api/v2.0/user?username={{ truenas_immich_smb_username }}"
-    method: GET
-    headers:
-      Authorization: "Bearer {{ truenas_immich_smb_api_token }}"
-    validate_certs: "{{ truenas_immich_smb_api_validate_certs }}"
-    status_code: [200]
-  register: truenas_immich_smb_user_final
-  no_log: true
-
-- name: Assign the existing Immich dataset to its SMB account
-  uri:
-    url: "{{ truenas_immich_smb_api_url }}/api/v2.0/filesystem/setperm"
-    method: POST
-    headers:
-      Authorization: "Bearer {{ truenas_immich_smb_api_token }}"
-      Content-Type: application/json
-    body_format: json
-    body:
-      path: "{{ truenas_immich_smb_export_path }}"
-      uid: "{{ truenas_immich_smb_user_final.json[0].uid | int }}"
-      gid: "{{ truenas_immich_smb_user_final.json[0].group.id | int }}"
-      mode: "0770"
-      options:
-        recursive: true
-        traverse: true
-        stripacl: true
-    validate_certs: "{{ truenas_immich_smb_api_validate_certs }}"
-    status_code: [200]
-  no_log: true
-
-- name: Look up the TrueNAS Immich SMB share
-  uri:
-    url: "{{ truenas_immich_smb_api_url }}/api/v2.0/sharing/smb"
-    method: GET
-    headers:
-      Authorization: "Bearer {{ truenas_immich_smb_api_token }}"
-    validate_certs: "{{ truenas_immich_smb_api_validate_certs }}"
-    status_code: [200]
-  register: truenas_immich_smb_share
-  no_log: true
-
-- name: Create the TrueNAS Immich SMB share
-  uri:
-    url: "{{ truenas_immich_smb_api_url }}/api/v2.0/sharing/smb"
-    method: POST
-    headers:
-      Authorization: "Bearer {{ truenas_immich_smb_api_token }}"
-      Content-Type: application/json
-    body_format: json
-    body:
-      path: "{{ truenas_immich_smb_export_path }}"
-      name: "{{ truenas_immich_smb_share_name }}"
-      comment: "Managed by Ansible: Immich media"
-      enabled: true
-    validate_certs: "{{ truenas_immich_smb_api_validate_certs }}"
-    status_code: [200]
-  when: >-
-    truenas_immich_smb_share.json
-    | selectattr('name', 'equalto', truenas_immich_smb_share_name)
-    | list
-    | length == 0
-  no_log: true
-
-- name: Enable the TrueNAS SMB service at boot
-  uri:
-    url: "{{ truenas_immich_smb_api_url }}/api/v2.0/service/id/cifs"
-    method: PUT
-    headers:
-      Authorization: "Bearer {{ truenas_immich_smb_api_token }}"
-      Content-Type: application/json
-    body_format: json
-    body:
-      enable: true
-    validate_certs: "{{ truenas_immich_smb_api_validate_certs }}"
-    status_code: [200]
-  no_log: true
-
-- name: Start the TrueNAS SMB service
-  uri:
-    url: "{{ truenas_immich_smb_api_url }}/api/v2.0/service/start"
-    method: POST
-    headers:
-      Authorization: "Bearer {{ truenas_immich_smb_api_token }}"
-      Content-Type: application/json
-    body_format: json
-    body:
-      service: cifs
-    validate_certs: "{{ truenas_immich_smb_api_validate_certs }}"
-    status_code: [200]
-  no_log: true
+- name: Configure TrueNAS Immich SMB resources through JSON-RPC
+  include_role:
+    name: truenas_jsonrpc_provision
+  vars:
+    truenas_jsonrpc_provision_api_url: "{{ truenas_immich_smb_api_url }}"
+    truenas_jsonrpc_provision_api_token: "{{ truenas_immich_smb_api_token }}"
+    truenas_jsonrpc_provision_api_validate_certs: "{{ truenas_immich_smb_api_validate_certs }}"
+    truenas_jsonrpc_provision_policy:
+      datasets:
+        - name: "{{ truenas_immich_smb_dataset }}"
+          create: false
+      users:
+        - username: "{{ truenas_immich_smb_username }}"
+          full_name: "Immich media account"
+          password: "{{ truenas_immich_smb_password }}"
+      permissions:
+        - path: "{{ truenas_immich_smb_export_path }}"
+          user: "{{ truenas_immich_smb_username }}"
+          mode: "0770"
+          options:
+            recursive: true
+            traverse: true
+            stripacl: true
+      shares:
+        - type: smb
+          path: "{{ truenas_immich_smb_export_path }}"
+          name: "{{ truenas_immich_smb_share_name }}"
+          comment: "Managed by Ansible: Immich media"
+      services: [cifs]
 
 - name: Configure TrueNAS periodic snapshots for the Immich dataset
   include_role:

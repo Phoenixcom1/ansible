@@ -1,0 +1,57 @@
+- name: Validate TrueNAS JSON-RPC provisioning configuration
+  assert:
+    that:
+      - truenas_jsonrpc_provision_api_token | length > 0
+      - truenas_jsonrpc_provision_policy | length > 0
+  no_log: true
+  when: truenas_jsonrpc_provision_enabled | bool
+
+- name: Install the Python WebSocket client for TrueNAS provisioning
+  package:
+    name: python3-websocket-client
+    state: present
+  become: true
+  when: truenas_jsonrpc_provision_enabled | bool
+
+- name: Write the TrueNAS JSON-RPC provisioning token
+  copy:
+    dest: "{{ truenas_jsonrpc_provision_token_file }}"
+    content: "{{ truenas_jsonrpc_provision_api_token }}\n"
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  no_log: true
+  when: truenas_jsonrpc_provision_enabled | bool
+
+- name: Write the TrueNAS JSON-RPC provisioning policy
+  copy:
+    dest: "{{ truenas_jsonrpc_provision_policy_file }}"
+    content: "{{ truenas_jsonrpc_provision_policy | to_nice_json }}\n"
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  no_log: true
+  when: truenas_jsonrpc_provision_enabled | bool
+
+- name: Deploy the TrueNAS JSON-RPC provisioning helper
+  template:
+    src: truenas-jsonrpc-provision.py.j2
+    dest: /opt/scripts/truenas-jsonrpc-provision.py
+    owner: root
+    group: root
+    mode: "0750"
+  become: true
+  when: truenas_jsonrpc_provision_enabled | bool
+
+- name: Apply the TrueNAS JSON-RPC provisioning policy
+  command:
+    argv:
+      - python3
+      - /opt/scripts/truenas-jsonrpc-provision.py
+      - "{{ truenas_jsonrpc_provision_policy_file }}"
+  become: true
+  register: truenas_jsonrpc_provision_result
+  changed_when: "truenas_jsonrpc_provision_result.stdout.startswith('changed:')"
+  when: truenas_jsonrpc_provision_enabled | bool

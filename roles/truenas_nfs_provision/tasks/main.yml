@@ -1,244 +1,94 @@
 ---
-- name: Validate TrueNAS API configuration
+- name: Validate TrueNAS NFS provisioning configuration
   assert:
     that:
-      - truenas_api_url | length > 0
       - truenas_api_token | length > 0
-    fail_msg: >-
-      Define truenas_api_url and provide truenas_api_token, preferably through
-      the TRUENAS_API_TOKEN environment variable or Ansible Vault.
+      - truenas_nfs_dataset_encryption_passphrase | length > 0 or not (truenas_nfs_provision_shares | selectattr('encrypted', 'defined') | selectattr('encrypted') | list | length > 0)
+  no_log: true
   when: truenas_nfs_provision_shares | length > 0
 
 - name: Get podman user identity for TrueNAS dataset permissions
   getent:
     database: passwd
-    key: "{{ podman_user }}"
+    key: "{{ podman_username }}"
   register: truenas_nfs_podman_user
   changed_when: false
   when:
     - truenas_nfs_provision_shares | length > 0
     - truenas_nfs_manage_dataset_permissions | bool
 
-- name: Set podman user identity for TrueNAS dataset permissions
+- name: Initialize the TrueNAS NFS JSON-RPC provisioning policy
   set_fact:
-    truenas_nfs_owner_uid: "{{ truenas_nfs_podman_user.ansible_facts.getent_passwd[podman_user][1] }}"
-    truenas_nfs_owner_gid: "{{ truenas_nfs_podman_user.ansible_facts.getent_passwd[podman_user][2] }}"
-  when:
-    - truenas_nfs_provision_shares | length > 0
-    - truenas_nfs_manage_dataset_permissions | bool
+    truenas_nfs_jsonrpc_datasets: []
+    truenas_nfs_jsonrpc_permissions: []
+    truenas_nfs_jsonrpc_shares: []
+  when: truenas_nfs_provision_shares | length > 0
 
-- name: Look up requested TrueNAS datasets
-  uri:
-    url: "{{ truenas_api_url }}/api/v2.0/pool/dataset/id/{{ item.dataset | replace('/', '%2F') }}"
-    method: GET
-    headers:
-      Authorization: "Bearer {{ truenas_api_token }}"
-    validate_certs: "{{ truenas_api_validate_certs }}"
-    status_code: [200, 404]
-    return_content: true
-  loop: "{{ truenas_nfs_provision_shares }}"
-  loop_control:
-    label: "{{ item.dataset }}"
-  register: truenas_dataset_lookup
-  no_log: true
-
-- name: Look up requested TrueNAS dataset parents
-  uri:
-    url: "{{ truenas_api_url }}/api/v2.0/pool/dataset/id/{{ item | replace('/', '%2F') }}"
-    method: GET
-    headers:
-      Authorization: "Bearer {{ truenas_api_token }}"
-    validate_certs: "{{ truenas_api_validate_certs }}"
-    status_code: [200, 404]
-    return_content: true
+- name: Add TrueNAS NFS dataset parents to the JSON-RPC policy
+  set_fact:
+    truenas_nfs_jsonrpc_datasets: "{{ truenas_nfs_jsonrpc_datasets + [{'name': item, 'share_type': 'GENERIC'}] }}"
   loop: "{{ truenas_nfs_dataset_parents }}"
-  loop_control:
-    label: "{{ item }}"
-  register: truenas_dataset_parent_lookup
-  no_log: true
+  when: truenas_nfs_provision_shares | length > 0
 
-- name: Create missing TrueNAS dataset parents
-  uri:
-    url: "{{ truenas_api_url }}/api/v2.0/pool/dataset"
-    method: POST
-    headers:
-      Authorization: "Bearer {{ truenas_api_token }}"
-      Content-Type: application/json
-    body_format: json
-    body:
-      name: "{{ item.item }}"
-      type: FILESYSTEM
+- name: Add TrueNAS NFS datasets to the JSON-RPC policy
+  set_fact:
+    truenas_nfs_jsonrpc_datasets: "{{ truenas_nfs_jsonrpc_datasets + [dataset_policy] }}"
+  vars:
+    dataset_policy:
+      name: "{{ item.dataset }}"
       share_type: GENERIC
-    validate_certs: "{{ truenas_api_validate_certs }}"
-    status_code: [200]
-  loop: "{{ truenas_dataset_parent_lookup.results }}"
-  loop_control:
-    label: "{{ item.item }}"
-  when: item.status == 404
-  no_log: true
-
-- name: Create missing TrueNAS datasets
-  uri:
-    url: "{{ truenas_api_url }}/api/v2.0/pool/dataset"
-    method: POST
-    headers:
-      Authorization: "Bearer {{ truenas_api_token }}"
-      Content-Type: application/json
-    body_format: json
-    body:
-      name: "{{ item.item.dataset }}"
-      type: FILESYSTEM
-      share_type: GENERIC
-    validate_certs: "{{ truenas_api_validate_certs }}"
-    status_code: [200]
-  loop: "{{ truenas_dataset_lookup.results }}"
-  loop_control:
-    label: "{{ item.item.dataset }}"
-  when:
-    - item.status == 404
-    - not (item.item.encrypted | default(false) | bool)
-  no_log: true
-
-- name: Validate passphrase for encrypted TrueNAS datasets
-  assert:
-    that:
-      - truenas_nfs_dataset_encryption_passphrase | string | length > 0
-    fail_msg: >-
-      Provide truenas_nfs_dataset_encryption_passphrase through an ignored
-      vaulted inventory or TRUENAS_NFS_DATASET_ENCRYPTION_PASSPHRASE.
-  loop: "{{ truenas_dataset_lookup.results }}"
-  loop_control:
-    label: "{{ item.item.dataset }}"
-  when:
-    - item.status == 404
-    - item.item.encrypted | default(false) | bool
-  no_log: true
-
-- name: Create missing passphrase-encrypted TrueNAS datasets
-  uri:
-    url: "{{ truenas_api_url }}/api/v2.0/pool/dataset"
-    method: POST
-    headers:
-      Authorization: "Bearer {{ truenas_api_token }}"
-      Content-Type: application/json
-    body_format: json
-    body:
-      name: "{{ item.item.dataset }}"
-      type: FILESYSTEM
-      share_type: GENERIC
-      encryption: true
-      inherit_encryption: false
+      encryption: "{{ item.encrypted | default(false) | bool }}"
       encryption_options:
         generate_key: false
         passphrase: "{{ truenas_nfs_dataset_encryption_passphrase }}"
         algorithm: "{{ truenas_nfs_dataset_encryption_algorithm }}"
         pbkdf2iters: "{{ truenas_nfs_dataset_encryption_pbkdf2iters | int }}"
-    validate_certs: "{{ truenas_api_validate_certs }}"
-    status_code: [200]
-  loop: "{{ truenas_dataset_lookup.results }}"
-  loop_control:
-    label: "{{ item.item.dataset }}"
-  when:
-    - item.status == 404
-    - item.item.encrypted | default(false) | bool
-  no_log: true
-
-- name: Look up existing TrueNAS NFS shares
-  uri:
-    url: "{{ truenas_api_url }}/api/v2.0/sharing/nfs"
-    method: GET
-    headers:
-      Authorization: "Bearer {{ truenas_api_token }}"
-    validate_certs: "{{ truenas_api_validate_certs }}"
-    status_code: [200]
-    return_content: true
-  register: truenas_nfs_share_lookup
-  when: truenas_nfs_provision_shares | length > 0
-  no_log: true
-
-- name: Create missing TrueNAS NFS shares
-  uri:
-    url: "{{ truenas_api_url }}/api/v2.0/sharing/nfs"
-    method: POST
-    headers:
-      Authorization: "Bearer {{ truenas_api_token }}"
-      Content-Type: application/json
-    body_format: json
-    body:
-      path: "{{ item.export_path }}"
-      hosts: "{{ item.allowed_hosts | default([static_ip]) }}"
-      comment: "Managed by Ansible: {{ item.dataset }}"
-      enabled: true
-    validate_certs: "{{ truenas_api_validate_certs }}"
-    status_code: [200]
   loop: "{{ truenas_nfs_provision_shares }}"
-  loop_control:
-    label: "{{ item.export_path }}"
-  when: >-
-    truenas_nfs_share_lookup.json
-    | selectattr('path', 'equalto', item.export_path)
-    | list
-    | length == 0
   no_log: true
+  when: truenas_nfs_provision_shares | length > 0
 
-# TODO: Use version-verified TrueNAS read endpoints to skip unchanged setperm
-# calls and NFS service operations. REST read endpoints vary by release.
-- name: Set managed TrueNAS dataset ownership and permissions
-  uri:
-    url: "{{ truenas_api_url }}/api/v2.0/filesystem/setperm"
-    method: POST
-    headers:
-      Authorization: "Bearer {{ truenas_api_token }}"
-      Content-Type: application/json
-    body_format: json
-    body:
+- name: Add TrueNAS NFS permissions to the JSON-RPC policy
+  set_fact:
+    truenas_nfs_jsonrpc_permissions: "{{ truenas_nfs_jsonrpc_permissions + [permission_policy] }}"
+  vars:
+    permission_policy:
       path: "{{ item.export_path }}"
-      uid: "{{ item.owner_uid | default(truenas_nfs_owner_uid) | int }}"
-      gid: "{{ item.owner_gid | default(truenas_nfs_owner_gid) | int }}"
+      uid: "{{ item.owner_uid | default(truenas_nfs_podman_user.ansible_facts.getent_passwd[podman_username][1]) | int }}"
+      gid: "{{ item.owner_gid | default(truenas_nfs_podman_user.ansible_facts.getent_passwd[podman_username][2]) | int }}"
       mode: "{{ item.mode | default(truenas_nfs_dataset_mode) }}"
       options:
         recursive: false
         traverse: false
         stripacl: true
-    validate_certs: "{{ truenas_api_validate_certs }}"
-    status_code: [200]
   loop: "{{ truenas_nfs_provision_shares }}"
-  loop_control:
-    label: "{{ item.export_path }}"
-  no_log: true
-  when: truenas_nfs_manage_dataset_permissions | bool
+  when:
+    - truenas_nfs_provision_shares | length > 0
+    - truenas_nfs_manage_dataset_permissions | bool
 
-- name: Enable the TrueNAS NFS service at boot
-  uri:
-    url: "{{ truenas_api_url }}/api/v2.0/service/id/nfs"
-    method: PUT
-    headers:
-      Authorization: "Bearer {{ truenas_api_token }}"
-      Content-Type: application/json
-    body_format: json
-    body:
-      enable: true
-    validate_certs: "{{ truenas_api_validate_certs }}"
-    status_code: [200]
+- name: Add TrueNAS NFS shares to the JSON-RPC policy
+  set_fact:
+    truenas_nfs_jsonrpc_shares: "{{ truenas_nfs_jsonrpc_shares + [share_policy] }}"
+  vars:
+    share_policy:
+      type: nfs
+      path: "{{ item.export_path }}"
+      hosts: "{{ item.allowed_hosts | default([static_ip]) }}"
+      comment: "Managed by Ansible: {{ item.dataset }}"
+  loop: "{{ truenas_nfs_provision_shares }}"
   when: truenas_nfs_provision_shares | length > 0
-  no_log: true
 
-- name: Start the TrueNAS NFS service
-  uri:
-    url: "{{ truenas_api_url }}/api/v2.0/service/start"
-    method: POST
-    headers:
-      Authorization: "Bearer {{ truenas_api_token }}"
-      Content-Type: application/json
-    body_format: json
-    body:
-      service: nfs
-    validate_certs: "{{ truenas_api_validate_certs }}"
-    status_code: [200]
+- name: Configure TrueNAS NFS resources through JSON-RPC
+  include_role:
+    name: truenas_jsonrpc_provision
+  vars:
+    truenas_jsonrpc_provision_policy:
+      datasets: "{{ truenas_nfs_jsonrpc_datasets }}"
+      permissions: "{{ truenas_nfs_jsonrpc_permissions }}"
+      shares: "{{ truenas_nfs_jsonrpc_shares }}"
+      services: [nfs]
   when: truenas_nfs_provision_shares | length > 0
-  no_log: true
 
-- name: Select periodic snapshot policies for managed datasets
+- name: Select periodic snapshot policies for managed NFS datasets
   set_fact:
     truenas_nfs_managed_snapshot_policies: >-
       {{ truenas_nfs_snapshot_retention_policies

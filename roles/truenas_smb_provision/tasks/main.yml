@@ -4,168 +4,44 @@
     that:
       - truenas_smb_api_token | length > 0
       - truenas_smb_backup_password | length > 0
-    fail_msg: >-
-      Define truenas_api_token and truenas_restic_smb_password in vaulted
-      inventory before enabling the Vaultwarden backup.
+      - truenas_smb_dataset_encryption_passphrase | length > 0
   no_log: true
 
-- name: Look up the TrueNAS SMB backup dataset
-  uri:
-    url: "{{ truenas_smb_api_url }}/api/v2.0/pool/dataset/id/{{ truenas_smb_backup_dataset | replace('/', '%2F') }}"
-    method: GET
-    headers:
-      Authorization: "Bearer {{ truenas_smb_api_token }}"
-    validate_certs: "{{ truenas_smb_api_validate_certs }}"
-    status_code: [200, 404]
-  register: truenas_smb_dataset
-  no_log: true
-
-- name: Create the encrypted TrueNAS SMB backup dataset
-  uri:
-    url: "{{ truenas_smb_api_url }}/api/v2.0/pool/dataset"
-    method: POST
-    headers:
-      Authorization: "Bearer {{ truenas_smb_api_token }}"
-      Content-Type: application/json
-    body_format: json
-    body:
-      name: "{{ truenas_smb_backup_dataset }}"
-      type: FILESYSTEM
-      share_type: SMB
-      encryption: true
-      inherit_encryption: false
-      encryption_options:
-        generate_key: false
-        passphrase: "{{ truenas_smb_dataset_encryption_passphrase }}"
-        algorithm: "{{ truenas_smb_dataset_encryption_algorithm }}"
-        pbkdf2iters: "{{ truenas_smb_dataset_encryption_pbkdf2iters | int }}"
-    validate_certs: "{{ truenas_smb_api_validate_certs }}"
-    status_code: [200]
-  when: truenas_smb_dataset.status == 404
-  no_log: true
-
-- name: Look up the TrueNAS SMB backup account
-  uri:
-    url: "{{ truenas_smb_api_url }}/api/v2.0/user?username={{ truenas_smb_backup_username }}"
-    method: GET
-    headers:
-      Authorization: "Bearer {{ truenas_smb_api_token }}"
-    validate_certs: "{{ truenas_smb_api_validate_certs }}"
-    status_code: [200]
-  register: truenas_smb_backup_user
-  no_log: true
-
-- name: Create the TrueNAS SMB backup account
-  uri:
-    url: "{{ truenas_smb_api_url }}/api/v2.0/user"
-    method: POST
-    headers:
-      Authorization: "Bearer {{ truenas_smb_api_token }}"
-      Content-Type: application/json
-    body_format: json
-    body:
-      username: "{{ truenas_smb_backup_username }}"
-      full_name: "Restic backup account"
-      group_create: true
-      password: "{{ truenas_smb_backup_password }}"
-      smb: true
-    validate_certs: "{{ truenas_smb_api_validate_certs }}"
-    status_code: [200]
-  when: truenas_smb_backup_user.json | length == 0
-  no_log: true
-
-- name: Get the provisioned TrueNAS SMB backup account
-  uri:
-    url: "{{ truenas_smb_api_url }}/api/v2.0/user?username={{ truenas_smb_backup_username }}"
-    method: GET
-    headers:
-      Authorization: "Bearer {{ truenas_smb_api_token }}"
-    validate_certs: "{{ truenas_smb_api_validate_certs }}"
-    status_code: [200]
-  register: truenas_smb_backup_user_final
-  no_log: true
-
-- name: Set TrueNAS SMB backup dataset ownership
-  uri:
-    url: "{{ truenas_smb_api_url }}/api/v2.0/filesystem/setperm"
-    method: POST
-    headers:
-      Authorization: "Bearer {{ truenas_smb_api_token }}"
-      Content-Type: application/json
-    body_format: json
-    body:
-      path: "{{ truenas_smb_backup_export_path }}"
-      uid: "{{ truenas_smb_backup_user_final.json[0].uid | int }}"
-      gid: "{{ truenas_smb_backup_user_final.json[0].group.id | int }}"
-      mode: "0700"
-      options:
-        recursive: false
-        traverse: false
-        stripacl: true
-    validate_certs: "{{ truenas_smb_api_validate_certs }}"
-    status_code: [200]
-  no_log: true
-
-- name: Look up the TrueNAS SMB share
-  uri:
-    url: "{{ truenas_smb_api_url }}/api/v2.0/sharing/smb"
-    method: GET
-    headers:
-      Authorization: "Bearer {{ truenas_smb_api_token }}"
-    validate_certs: "{{ truenas_smb_api_validate_certs }}"
-    status_code: [200]
-  register: truenas_smb_share
-  no_log: true
-
-- name: Create the TrueNAS SMB backup share
-  uri:
-    url: "{{ truenas_smb_api_url }}/api/v2.0/sharing/smb"
-    method: POST
-    headers:
-      Authorization: "Bearer {{ truenas_smb_api_token }}"
-      Content-Type: application/json
-    body_format: json
-    body:
-      path: "{{ truenas_smb_backup_export_path }}"
-      name: "{{ truenas_smb_backup_share_name }}"
-      comment: "Managed by Ansible: Restic backups"
-      enabled: true
-    validate_certs: "{{ truenas_smb_api_validate_certs }}"
-    status_code: [200]
-  when: >-
-    truenas_smb_share.json
-    | selectattr('name', 'equalto', truenas_smb_backup_share_name)
-    | list
-    | length == 0
-  no_log: true
-
-- name: Enable the TrueNAS SMB service at boot
-  uri:
-    url: "{{ truenas_smb_api_url }}/api/v2.0/service/id/cifs"
-    method: PUT
-    headers:
-      Authorization: "Bearer {{ truenas_smb_api_token }}"
-      Content-Type: application/json
-    body_format: json
-    body:
-      enable: true
-    validate_certs: "{{ truenas_smb_api_validate_certs }}"
-    status_code: [200]
-  no_log: true
-
-- name: Start the TrueNAS SMB service
-  uri:
-    url: "{{ truenas_smb_api_url }}/api/v2.0/service/start"
-    method: POST
-    headers:
-      Authorization: "Bearer {{ truenas_smb_api_token }}"
-      Content-Type: application/json
-    body_format: json
-    body:
-      service: cifs
-    validate_certs: "{{ truenas_smb_api_validate_certs }}"
-    status_code: [200]
-  no_log: true
+- name: Configure TrueNAS Restic SMB resources through JSON-RPC
+  include_role:
+    name: truenas_jsonrpc_provision
+  vars:
+    truenas_jsonrpc_provision_api_url: "{{ truenas_smb_api_url }}"
+    truenas_jsonrpc_provision_api_token: "{{ truenas_smb_api_token }}"
+    truenas_jsonrpc_provision_api_validate_certs: "{{ truenas_smb_api_validate_certs }}"
+    truenas_jsonrpc_provision_policy:
+      datasets:
+        - name: "{{ truenas_smb_backup_dataset }}"
+          share_type: SMB
+          encryption: true
+          encryption_options:
+            generate_key: false
+            passphrase: "{{ truenas_smb_dataset_encryption_passphrase }}"
+            algorithm: "{{ truenas_smb_dataset_encryption_algorithm }}"
+            pbkdf2iters: "{{ truenas_smb_dataset_encryption_pbkdf2iters | int }}"
+      users:
+        - username: "{{ truenas_smb_backup_username }}"
+          full_name: "Restic backup account"
+          password: "{{ truenas_smb_backup_password }}"
+      permissions:
+        - path: "{{ truenas_smb_backup_export_path }}"
+          user: "{{ truenas_smb_backup_username }}"
+          mode: "0700"
+          options:
+            recursive: false
+            traverse: false
+            stripacl: true
+      shares:
+        - type: smb
+          path: "{{ truenas_smb_backup_export_path }}"
+          name: "{{ truenas_smb_backup_share_name }}"
+          comment: "Managed by Ansible: Restic backups"
+      services: [cifs]
 
 - name: Configure TrueNAS periodic snapshots for the Restic backup dataset
   include_role:

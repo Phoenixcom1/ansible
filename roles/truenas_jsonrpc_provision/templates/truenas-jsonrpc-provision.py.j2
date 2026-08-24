@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+import json
+import ssl
+import sys
+
+import websocket
+
+JSONRPC_URL = {{ truenas_jsonrpc_provision_url | to_json }}
+TOKEN_FILE = {{ truenas_jsonrpc_provision_token_file | to_json }}
+VALIDATE_CERTS = {{ truenas_jsonrpc_provision_api_validate_certs | bool | ternary('True', 'False') }}
+
+
+class Client:
+    def __init__(self):
+        ssl_options = None if VALIDATE_CERTS else {"cert_reqs": ssl.CERT_NONE}
+        self.connection = websocket.create_connection(JSONRPC_URL, sslopt=ssl_options)
+        self.request_id = 1
+
+    def call(self, method, params):
+        request_id = self.request_id
+        self.request_id += 1
+        self.connection.send(json.dumps({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}))
+        while True:
+            response = json.loads(self.connection.recv())
+            if response.get("id") != request_id:
+                continue
+            if "error" in response:
+                raise RuntimeError(response["error"])
+            return response["result"]
+
+    def query(self, method, field, value):
+        return self.call(method, [[[field, "=", value]], {}])
+
+
+def ensure_dataset(client, dataset, changes):
+    found = client.query("pool.dataset.query", "id", dataset["name"])
+    if found:
+        return
+    if not dataset.get("create", True):
+        raise RuntimeError(f"Required dataset does not exist: {dataset['name']}")
+    payload = {"name": dataset["name"], "type": "FILESYSTEM", "share_type": dataset.get("share_type", "GENERIC")}
+    if dataset.get("encryption"):
+        payload.update({"encryption": True, "inherit_encryption": False, "encryption_options": dataset["encryption_options"]})
+    client.call("pool.dataset.create", [payload])
+    changes.append(f"created dataset {dataset['name']}")
+
+
+def main():
+    if len(sys.argv) != 2:
+        raise ValueError("Usage: truenas-jsonrpc-provision.py POLICY_FILE")
+    with open(sys.argv[1], encoding="utf-8") as policy_file:
+        policy = json.load(policy_file)
+    with open(TOKEN_FILE, encoding="utf-8") as token_file:
+        token = token_file.read().strip()
+
+    client = Client()
+    try:
+        client.call("auth.login_with_api_key", [token])
+        changes = []
+        for dataset in policy.get("datasets", []):
+            ensure_dataset(client, dataset, changes)
+        for user in policy.get("users", []):
+            found = client.query("user.query", "username", user["username"])
+            if not found:
+                client.call("user.create", [{"username": user["username"], "full_name": user["full_name"], "group_create": True, "password": user["password"], "smb": True}])
+                changes.append(f"created user {user['username']}")
+        for permission in policy.get("permissions", []):
+            payload = {"path": permission["path"], "mode": permission["mode"], "options": permission["options"]}
+            if permission.get("user"):
+                payload.update({"user": permission["user"], "group": permission.get("group", permission["user"])})
+            else:
+                payload.update({"uid": int(permission["uid"]), "gid": int(permission["gid"])})
+            client.call("filesystem.setperm", [payload])
+            changes.append(f"set permissions {permission['path']}")
+        for share in policy.get("shares", []):
+            method = f"sharing.{share['type']}.query"
+            key = "name" if share["type"] == "smb" else "path"
+            value = share[key]
+            if not client.query(method, key, value):
+                payload = {"path": share["path"], "comment": share["comment"], "enabled": True}
+                if share["type"] == "smb":
+                    payload["name"] = share["name"]
+                else:
+                    payload["hosts"] = share["hosts"]
+                client.call(f"sharing.{share['type']}.create", [payload])
+                changes.append(f"created {share['type']} share {value}")
+        for service in policy.get("services", []):
+            configured = client.query("service.query", "service", service)[0]
+            if not configured["enable"]:
+                client.call("service.update", [service, {"enable": True}])
+                changes.append(f"enabled service {service}")
+            if not client.call("service.started", [service]):
+                client.call("service.start", [service])
+                changes.append(f"started service {service}")
+        print("changed: " + ", ".join(changes) if changes else "unchanged")
+    finally:
+        client.connection.close()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as error:
+        print(f"TrueNAS JSON-RPC provisioning failed: {error}", file=sys.stderr)
+        sys.exit(1)

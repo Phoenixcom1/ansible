@@ -1,0 +1,8 @@
+truenas_jsonrpc_provision_enabled: true
+truenas_jsonrpc_provision_api_url: "{{ truenas_api_url | default('https://truenas.' ~ customer_domain) }}"
+truenas_jsonrpc_provision_url: "{{ truenas_jsonrpc_provision_api_url | regex_replace('^https', 'wss') }}/api/current"
+truenas_jsonrpc_provision_api_token: "{{ truenas_api_token | default('', true) }}"
+truenas_jsonrpc_provision_api_validate_certs: "{{ truenas_api_validate_certs | default(true) }}"
+truenas_jsonrpc_provision_token_file: "/root/.truenas_jsonrpc_provision_api_token"
+truenas_jsonrpc_provision_policy_file: "/etc/truenas-jsonrpc-provision.json"
+truenas_jsonrpc_provision_policy: {}
