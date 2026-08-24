@@ -39,6 +39,7 @@ all:
           encrypted: true
       restic_backup_enabled_services:
         - vaultwarden
+        - homepage
       #vlan_id: 107
       #vlan_ip_address: "" # Leave empty; IP will be on the bridge instead
       #bridge_name: "br-vlan107" # Host bridge on VLAN 107

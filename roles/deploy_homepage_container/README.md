@@ -44,10 +44,10 @@ Quadlets are Podman's native systemd integration format (Podman 4.4+). They use 
 ### Default Settings (defaults/main.yml)
 
 ```yaml
-homepage_domain: "homepage.kerberos.fassbender.contact"
+homepage_domain: "homepage.{{ customer_domain }}"
 homepage_port: 3000
-homepage_config_dir: "/opt/podman/homepage"
-podman_network: "podman_bridge"
+homepage_config_dir: "{{ podman_service_dir }}/homepage/config"
+podman_network: "podman"
 ```
 
 ## Deployment
