@@ -20,21 +20,22 @@
     #- podman-user
     # NFS datasets need the Podman user to exist so TrueNAS permissions can be
     # assigned before services consume their mounts.
-    - truenas_nfs_provision
+    #- truenas_nfs_provision
     #- truenas_nfs_client
     #- podman-vlan-setup
     #- nginx_reverse_proxy
     #- podman-compose-deploy
     #- deploy_homepage_container
     #- deploy_jellyfin_container
-    - truenas_immich_smb_provision
+    #- truenas_immich_smb_provision
     #- deploy_immich_container
     #- deploy_vaultwarden_container
     #- deploy_unifi_controller_container
     #- deploy_paperless_container
     #- deploy_frigate_container
-    - role: truenas_smb_provision
-      when: "'vaultwarden' in restic_backup_enabled_services"
+    #- role: truenas_smb_provision
+    #  when: "'vaultwarden' in restic_backup_enabled_services"
+    - truenas_replication
     #- restic-backup
     #- immich-snapshot-backup
     #- role: restic-restore

@@ -40,6 +40,12 @@ all:
       restic_backup_enabled_services:
         - vaultwarden
         - homepage
+      truenas_replication_enabled: true
+      truenas_replication_destination_api_url: "https://192.168.1.228"
+      truenas_replication_destination_api_validate_certs: false
+      truenas_replication_destination_dataset: "tank/Truenas_Backup_Enno"
+      # The destination account identifies this source host to the remote NAS.
+      truenas_replication_remote_username: "truenas-repl-Enno"
       #vlan_id: 107
       #vlan_ip_address: "" # Leave empty; IP will be on the bridge instead
       #bridge_name: "br-vlan107" # Host bridge on VLAN 107

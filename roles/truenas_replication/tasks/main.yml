@@ -1,0 +1,129 @@
+---
+- name: Validate TrueNAS replication configuration
+  assert:
+    that:
+      - truenas_replication_source_api_token | length > 0
+      - truenas_replication_destination_api_token | length > 0
+      - truenas_replication_datasets | length > 0
+  no_log: true
+  when: truenas_replication_enabled | bool
+
+- name: Generate or reuse the source TrueNAS SSH keypair
+  include_role:
+    name: truenas_jsonrpc_provision
+  vars:
+    truenas_jsonrpc_provision_api_url: "{{ truenas_replication_source_api_url }}"
+    truenas_jsonrpc_provision_api_token: "{{ truenas_replication_source_api_token }}"
+    truenas_jsonrpc_provision_api_validate_certs: "{{ truenas_replication_source_api_validate_certs }}"
+    truenas_jsonrpc_provision_policy:
+      keychain_credentials:
+        - name: "{{ truenas_replication_keypair_name }}"
+          type: SSH_KEY_PAIR
+          generate: true
+      public_key_output_file: "{{ truenas_replication_public_key_path }}"
+      public_key_name: "{{ truenas_replication_keypair_name }}"
+      host_key_scans: >-
+        {{ ([{
+          'host': truenas_replication_destination_api_url | regex_replace('^https?://', '') | regex_replace('/$', ''),
+          'port': truenas_replication_ssh_port | int,
+          'connect_timeout': truenas_replication_ssh_connect_timeout | int,
+          'output_file': truenas_replication_host_key_path
+        }] if truenas_replication_destination_ssh_fingerprint | length == 0 else []) }}
+  no_log: true
+  when: truenas_replication_enabled | bool
+
+- name: Read the source TrueNAS public key
+  slurp:
+    src: "{{ truenas_replication_public_key_path }}"
+  register: truenas_replication_public_key_result
+  become: true
+  no_log: true
+  when: truenas_replication_enabled | bool
+
+- name: Read the source TrueNAS discovery result
+  slurp:
+    src: "{{ truenas_replication_host_key_path }}"
+  register: truenas_replication_host_key_result
+  become: true
+  no_log: true
+  when:
+    - truenas_replication_enabled | bool
+    - truenas_replication_destination_ssh_fingerprint | length == 0
+
+- name: Configure the destination user and dataset through JSON-RPC
+  include_role:
+    name: truenas_jsonrpc_provision
+  vars:
+    truenas_jsonrpc_provision_api_url: "{{ truenas_replication_destination_api_url }}"
+    truenas_jsonrpc_provision_api_token: "{{ truenas_replication_destination_api_token }}"
+    truenas_jsonrpc_provision_api_validate_certs: "{{ truenas_replication_destination_api_validate_certs }}"
+    truenas_jsonrpc_provision_policy:
+      datasets:
+        - name: "{{ truenas_replication_destination_dataset }}"
+          share_type: GENERIC
+      users:
+        - username: "{{ truenas_replication_remote_username }}"
+          full_name: "{{ truenas_replication_remote_full_name }}"
+          password: "{{ truenas_replication_remote_password | default('', true) or lookup('password', '/dev/null length=32 chars=ascii_letters,digits') }}"
+          shell: "{{ truenas_replication_remote_shell }}"
+          home: "{{ truenas_replication_remote_home }}"
+          sshpubkey: "{{ truenas_replication_public_key_result.content | b64decode | trim }}"
+          smb: false
+      permissions:
+        - path: "/mnt/{{ truenas_replication_destination_dataset }}"
+          user: "{{ truenas_replication_remote_username }}"
+          mode: "0700"
+          options:
+            recursive: false
+            traverse: true
+            stripacl: false
+  no_log: true
+  when: truenas_replication_enabled | bool
+
+- name: Configure the source replication task through JSON-RPC
+  include_role:
+    name: truenas_jsonrpc_provision
+  vars:
+    truenas_jsonrpc_provision_api_url: "{{ truenas_replication_source_api_url }}"
+    truenas_jsonrpc_provision_api_token: "{{ truenas_replication_source_api_token }}"
+    truenas_jsonrpc_provision_api_validate_certs: "{{ truenas_replication_source_api_validate_certs }}"
+    truenas_jsonrpc_provision_policy:
+      keychain_credentials:
+        - name: "{{ truenas_replication_keypair_name }}"
+          type: SSH_KEY_PAIR
+          generate: true
+        - name: "{{ truenas_replication_ssh_credential_name }}"
+          type: SSH_CREDENTIALS
+          attributes:
+            host: "{{ truenas_replication_destination_api_url | regex_replace('^https?://', '') | regex_replace('/$', '') }}"
+            port: "{{ truenas_replication_ssh_port | int }}"
+            username: "{{ truenas_replication_remote_username }}"
+            private_key_name: "{{ truenas_replication_keypair_name }}"
+            remote_host_key: "{{ truenas_replication_destination_ssh_fingerprint | default((truenas_replication_host_key_result.content | default('')) | b64decode | trim, true) }}"
+            connect_timeout: "{{ truenas_replication_ssh_connect_timeout | int }}"
+      replications:
+        - name: "{{ truenas_replication_task_name }}"
+          direction: PUSH
+          transport: SSH
+          ssh_credentials_name: "{{ truenas_replication_ssh_credential_name }}"
+          sudo: false
+          preserve_existing_source_datasets: true
+          source_datasets: "{{ truenas_replication_datasets }}"
+          target_dataset: "{{ truenas_replication_destination_dataset }}"
+          recursive: false
+          properties: true
+          replicate: false
+          encryption: false
+          auto: true
+          name_regex: "{{ truenas_replication_snapshot_name_regex }}"
+          schedule: "{{ truenas_replication_schedule }}"
+          readonly: "{{ truenas_replication_readonly }}"
+          retention_policy: SOURCE
+          allow_from_scratch: true
+          large_block: true
+          embed: false
+          compressed: true
+          retries: 5
+          enabled: true
+  no_log: true
+  when: truenas_replication_enabled | bool

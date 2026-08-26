@@ -34,15 +34,111 @@ class Client:
 
 def ensure_dataset(client, dataset, changes):
     found = client.query("pool.dataset.query", "id", dataset["name"])
-    if found:
+    if not found:
+        if not dataset.get("create", True):
+            raise RuntimeError(f"Required dataset does not exist: {dataset['name']}")
+        payload = {"name": dataset["name"], "type": "FILESYSTEM", "share_type": dataset.get("share_type", "GENERIC")}
+        if dataset.get("encryption"):
+            payload.update({"encryption": True, "inherit_encryption": False, "encryption_options": dataset["encryption_options"]})
+        client.call("pool.dataset.create", [payload])
+        changes.append(f"created dataset {dataset['name']}")
+    for child in dataset.get("children", []):
+        child_name = f"{dataset['name']}/{child.rsplit('/', 1)[-1]}"
+        ensure_dataset(client, {"name": child_name, "share_type": dataset.get("share_type", "GENERIC")}, changes)
+
+
+def ensure_user(client, user, changes):
+    found = client.query("user.query", "username", user["username"])
+    payload = {key: value for key, value in user.items() if key != "username"}
+    if not found:
+        payload.setdefault("group_create", True)
+        client.call("user.create", [dict(payload, username=user["username"])])
+        changes.append(f"created user {user['username']}")
         return
-    if not dataset.get("create", True):
-        raise RuntimeError(f"Required dataset does not exist: {dataset['name']}")
-    payload = {"name": dataset["name"], "type": "FILESYSTEM", "share_type": dataset.get("share_type", "GENERIC")}
-    if dataset.get("encryption"):
-        payload.update({"encryption": True, "inherit_encryption": False, "encryption_options": dataset["encryption_options"]})
-    client.call("pool.dataset.create", [payload])
-    changes.append(f"created dataset {dataset['name']}")
+    current = found[0]
+    updates = {}
+    for key in ("full_name", "shell", "home", "sshpubkey", "smb"):
+        if key in payload and current.get(key) != payload[key]:
+            updates[key] = payload[key]
+    if updates:
+        client.call("user.update", [current["id"], updates])
+        changes.append(f"updated user {user['username']}")
+
+
+def ensure_keychain_credentials(client, credentials, changes):
+    key_ids = {}
+    public_keys = {}
+    for credential in credentials:
+        found = client.query("keychaincredential.query", "name", credential["name"])
+        if found:
+            key_ids[credential["name"]] = found[0]["id"]
+            attributes = found[0].get("attributes", {})
+            if attributes.get("public_key"):
+                public_keys[credential["name"]] = attributes["public_key"]
+            if credential["type"] == "SSH_CREDENTIALS":
+                desired_attributes = dict(credential["attributes"])
+                private_key_name = desired_attributes.pop("private_key_name", None)
+                if private_key_name:
+                    desired_attributes["private_key"] = key_ids[private_key_name]
+                if any(attributes.get(key) != value for key, value in desired_attributes.items()):
+                    client.call("keychaincredential.update", [found[0]["id"], {"attributes": desired_attributes}])
+                    changes.append(f"updated keychain credential {credential['name']}")
+            continue
+        if credential.get("generate"):
+            generated = client.call("keychaincredential.generate_ssh_key_pair", [])
+            attributes = {
+                "private_key": generated["private_key"],
+                "public_key": generated["public_key"],
+            }
+        else:
+            attributes = dict(credential["attributes"])
+        private_key_name = attributes.pop("private_key_name", None)
+        if private_key_name:
+            attributes["private_key"] = key_ids[private_key_name]
+        credential_id = client.call("keychaincredential.create", [{"name": credential["name"], "type": credential["type"], "attributes": attributes}])
+        key_ids[credential["name"]] = credential_id
+        if attributes.get("public_key"):
+            public_keys[credential["name"]] = attributes["public_key"]
+        changes.append(f"created keychain credential {credential['name']}")
+    return key_ids, public_keys
+
+
+def ensure_replication(client, replication, key_ids, changes):
+    found = client.query("replication.query", "name", replication["name"])
+    payload = dict(replication)
+    preserve_existing_source_datasets = payload.pop("preserve_existing_source_datasets", False)
+    credential_name = payload.pop("ssh_credentials_name", None)
+    if credential_name:
+        credential_id = key_ids[credential_name]
+        if isinstance(credential_id, dict):
+            credential_id = credential_id["id"]
+        payload["ssh_credentials"] = int(credential_id)
+    if not found:
+        client.call("replication.create", [payload])
+        changes.append(f"created replication task {replication['name']}")
+        return
+    current = found[0]
+    if preserve_existing_source_datasets:
+        existing_datasets = current.get("source_datasets", [])
+        requested_datasets = payload.get("source_datasets", [])
+        payload["source_datasets"] = list(dict.fromkeys(existing_datasets + requested_datasets))
+    comparable = {key: value for key, value in payload.items() if key not in ("enabled",)}
+    current_comparable = {key: current.get(key) for key in comparable}
+    if current_comparable != comparable:
+        client.call("replication.update", [current["id"], payload])
+        changes.append(f"updated replication task {replication['name']}")
+
+
+def scan_host_keys(client, scans, changes):
+    for scan in scans:
+        host_key = client.call("keychaincredential.remote_ssh_host_key_scan", [{
+            "host": scan["host"],
+            "port": int(scan.get("port", 22)),
+            "connect_timeout": int(scan.get("connect_timeout", 10)),
+        }])
+        with open(scan["output_file"], "w", encoding="utf-8") as output_file:
+            output_file.write(host_key.strip() + "\n")
+        changes.append(f"scanned SSH host key for {scan['host']}")
 
 
 def main():
@@ -60,10 +156,16 @@ def main():
         for dataset in policy.get("datasets", []):
             ensure_dataset(client, dataset, changes)
         for user in policy.get("users", []):
-            found = client.query("user.query", "username", user["username"])
-            if not found:
-                client.call("user.create", [{"username": user["username"], "full_name": user["full_name"], "group_create": True, "password": user["password"], "smb": True}])
-                changes.append(f"created user {user['username']}")
+            ensure_user(client, user, changes)
+        key_ids, public_keys = ensure_keychain_credentials(client, policy.get("keychain_credentials", []), changes)
+        public_key_output_file = policy.get("public_key_output_file")
+        if public_key_output_file:
+            public_key_name = policy["public_key_name"]
+            with open(public_key_output_file, "w", encoding="utf-8") as output_file:
+                output_file.write(public_keys[public_key_name].strip() + "\n")
+        scan_host_keys(client, policy.get("host_key_scans", []), changes)
+        for replication in policy.get("replications", []):
+            ensure_replication(client, replication, key_ids, changes)
         for permission in policy.get("permissions", []):
             payload = {"path": permission["path"], "mode": permission["mode"], "options": permission["options"]}
             if permission.get("user"):

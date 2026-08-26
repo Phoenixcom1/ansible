@@ -1,0 +1,39 @@
+---
+truenas_replication_enabled: false
+
+truenas_replication_source_api_url: "{{ truenas_api_url | default('https://truenas.' ~ customer_domain) }}"
+truenas_replication_source_api_token: "{{ truenas_api_token | default('', true) }}"
+truenas_replication_source_api_validate_certs: "{{ truenas_api_validate_certs | default(true) }}"
+truenas_replication_destination_api_url: "https://192.168.1.228"
+truenas_replication_destination_api_token: ""
+truenas_replication_destination_api_validate_certs: "{{ truenas_api_validate_certs | default(true) }}"
+
+truenas_replication_remote_username: "truenas-replication"
+truenas_replication_remote_password: ""
+truenas_replication_remote_full_name: "TrueNAS replication account"
+truenas_replication_remote_shell: "/usr/bin/bash"
+truenas_replication_remote_home: "/mnt/{{ truenas_replication_destination_dataset }}"
+truenas_replication_destination_dataset: "tank/Backup_Enno"
+truenas_replication_task_name: "Ansible TrueNAS Offsite Backup"
+truenas_replication_ssh_credential_name: "Ansible TrueNAS Offsite Backup SSH"
+truenas_replication_ssh_port: 22
+truenas_replication_ssh_connect_timeout: 10
+truenas_replication_public_key_path: "/run/truenas-replication-public-key"
+truenas_replication_host_key_path: "/run/truenas-replication-host-key"
+truenas_replication_keypair_name: "Ansible TrueNAS Offsite Backup SSH Key"
+truenas_replication_destination_ssh_fingerprint: ""
+truenas_replication_snapshot_name_regex: "^ansible-.*"
+truenas_replication_readonly: IGNORE
+truenas_replication_schedule:
+  minute: "0"
+  hour: "3"
+  dom: "*"
+  month: "*"
+  dow: "*"
+
+truenas_replication_datasets: >-
+  {{ (
+    (truenas_nfs_mounts | default([]) | selectattr('dataset', 'defined') | map(attribute='dataset') | list)
+    + [truenas_immich_smb_dataset | default('tank/apps/immich-data')]
+    + [truenas_smb_backup_dataset | default('tank/apps/podman-backups')]
+  ) | unique | list }}
