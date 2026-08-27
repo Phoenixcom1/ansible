@@ -127,6 +127,34 @@ restic_backup_services:
 Services without a `destinations` key keep going to every destination, so
 existing configs are unaffected.
 
+### Overriding a Service Per Host
+
+`restic_backup_services` is a shared role default. Rather than redefining a
+whole service's config in inventory just to tweak one field, use
+`restic_service_overrides` to merge specific keys (`paths`, `excludes`,
+`destinations`, etc.) onto a service for that host only:
+
+```yaml
+restic_service_overrides:
+  immich:
+    destinations:
+      - rest-offsite
+    paths:
+      - /srv/containers/immich-data # real upload dir, if it differs from the role's default guess
+      - "{{ podman_service_dir }}/immich/postgres"
+      - "{{ podman_service_dir }}/immich/immich.env"
+```
+
+This is the recommended way to correct a service's paths when they don't
+match this role's built-in defaults for that service (e.g. when
+`deploy_immich_container`'s `immich_upload_dir` points at an external
+mount instead of the default guess), without affecting other hosts that
+might use different paths for the same service name.
+
+**Note:** each path is checked with `[ -e ... ]` (exists, file or
+directory) before backing it up - both directories (e.g. an upload folder)
+and single files (e.g. `immich.env`) are backed up correctly.
+
 ### REST Server Destinations
 
 A `rest:` repository (restic's own REST server backend, e.g. `restic/rest-server`)

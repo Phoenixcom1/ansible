@@ -34,6 +34,18 @@ restic_backup_time: "*-*-* 02:00:00" # Daily at 2 AM
 restic_enable_timer: true
 restic_backup_enabled_services: []
 
+# Per-host override of specific keys (paths, excludes, destinations, etc.)
+# in a restic_backup_services entry, without having to redefine the whole
+# service. Useful when a service's real data location differs from this
+# role's default guess, or to route only some services off-site. Example:
+# restic_service_overrides:
+#   immich:
+#     destinations:
+#       - rest-offsite
+#     paths:
+#       - /srv/containers/immich-data
+restic_service_overrides: {}
+
 # Services to backup (each service has its own backup paths)
 restic_backup_services:
   homepage:

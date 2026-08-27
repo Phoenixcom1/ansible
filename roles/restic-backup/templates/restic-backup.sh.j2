@@ -123,7 +123,7 @@ else
 fi
 {% endif %}
 
-{% for service_name, service_config in restic_backup_services.items() %}
+{% for service_name, service_config in restic_backup_services_effective.items() %}
 {% if service_name in restic_backup_enabled_services and service_config.get('stop_before_backup', False) %}
 {% if service_config.get('systemd_user_unit', '') %}
 # {{ service_name }}: Stop the rootless Quadlet service for a consistent backup.
@@ -161,7 +161,7 @@ echo "Pre-backup actions completed"
 echo ""
 
 # Backup each enabled service
-{% for service_name, service_config in restic_backup_services.items() %}
+{% for service_name, service_config in restic_backup_services_effective.items() %}
 {% if service_name in restic_backup_enabled_services %}
 echo ""
 restic_log "Backing up {{ service_name }}..."
@@ -172,7 +172,7 @@ declare -a SERVICE_DESTS=(
 {% endfor %}
 )
 {% for path in service_config.paths %}
-if [ -d "{{ path }}" ]; then
+if [ -e "{{ path }}" ]; then
     for i in "${!DEST_NAMES[@]}"; do
         DEST_ALLOWED=false
         for allowed in "${SERVICE_DESTS[@]}"; do

@@ -51,6 +51,19 @@
       {{ (restic_nas_enabled | bool) and
          not (restic_nas_fstype == 'cifs' and (restic_nas_password | string | length == 0)) }}
 
+- name: Initialize effective backup service definitions
+  set_fact:
+    restic_backup_services_effective: {}
+
+- name: Apply per-service overrides
+  set_fact:
+    restic_backup_services_effective: >-
+      {{ restic_backup_services_effective | combine({item.key:
+           (item.value | combine(restic_service_overrides[item.key]) if item.key in restic_service_overrides else item.value)}) }}
+  loop: "{{ restic_backup_services | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
 - name: Initialize whether any enabled service actually uses the primary destination
   set_fact:
     restic_primary_needed: false
@@ -59,8 +72,8 @@
   set_fact:
     restic_primary_needed: >-
       {{ restic_primary_needed or
-         (restic_backup_services[item].destinations is not defined) or
-         ('primary' in restic_backup_services[item].destinations) }}
+         (restic_backup_services_effective[item].destinations is not defined) or
+         ('primary' in restic_backup_services_effective[item].destinations) }}
   loop: "{{ restic_backup_enabled_services }}"
   loop_control:
     label: "{{ item }}"
@@ -489,7 +502,7 @@
 
       Services configured for backup:
       {% for service_name in restic_backup_enabled_services %}
-      - {{ service_name }}: {{ restic_backup_services[service_name].paths | join(', ') }}
+      - {{ service_name }}: {{ restic_backup_services_effective[service_name].paths | join(', ') }}{% if restic_backup_services_effective[service_name].destinations is defined %} -> {{ restic_backup_services_effective[service_name].destinations | join(', ') }}{% endif %}
       {% endfor %}
 
       Retention policy:

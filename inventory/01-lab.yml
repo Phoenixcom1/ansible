@@ -40,6 +40,15 @@ all:
       restic_backup_enabled_services:
         - vaultwarden
         - homepage
+        - immich
+      restic_service_overrides:
+        immich:
+          destinations:
+            - rest-offsite
+          paths:
+            - "{{ immich_upload_dir | default('/srv/containers/immich-data') }}"
+            - "{{ podman_service_dir }}/immich/postgres"
+            - "{{ podman_service_dir }}/immich/immich.env"
       restic_additional_destinations:
         - name: rest-offsite
           repository: "rest:https://restic.kerberos.bitsnbyt.es/restic/podman-vm-pve0"

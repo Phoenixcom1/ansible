@@ -16,7 +16,7 @@ declare -a STOPPED_SERVICES=()
 echo ""
 echo "Testing service stop logic..."
 
-{% for service_name, service_config in restic_backup_services.items() %}
+{% for service_name, service_config in restic_backup_services_effective.items() %}
 {% if service_name in restic_backup_enabled_services and service_config.get('stop_before_backup', False) %}
 # {{ service_name }}: Stop compose stack for safe database backup
 COMPOSE_FILE="{{ service_config.compose_file }}"
