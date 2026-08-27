@@ -59,6 +59,19 @@ select_destination() {
     fi
 }
 
+# Runs "$@" with an optional hard timeout. If timeout_s is 0, no hard timeout
+# is applied; this is the default for large backup jobs that may legitimately
+# run for hours.
+run_restic() {
+    local timeout_s="$1"
+    shift 1
+    if [ "$timeout_s" -gt 0 ]; then
+        timeout "$timeout_s" "$@"
+    else
+        "$@"
+    fi
+}
+
 # Tracks per-destination health; a destination that fails init/backup/prune is
 # skipped for the rest of this run but never aborts the others or the script.
 declare -a DEST_OK=()
@@ -80,13 +93,17 @@ for i in "${!DEST_NAMES[@]}"; do
         continue
     fi
 
-    restic_log "Running 'restic snapshots' against destination '${DEST_NAMES[$i]}' (timeout ${DEST_TIMEOUTS[$i]}s) to check if it's already initialized..."
-    if ! timeout "${DEST_TIMEOUTS[$i]}" restic snapshots >/dev/null; then
+    if [ "${DEST_TIMEOUTS[$i]}" -gt 0 ]; then
+        restic_log "Running 'restic snapshots' against destination '${DEST_NAMES[$i]}' (hard timeout ${DEST_TIMEOUTS[$i]}s) to check if it's already initialized..."
+    else
+        restic_log "Running 'restic snapshots' against destination '${DEST_NAMES[$i]}' (no hard timeout) to check if it's already initialized..."
+    fi
+    if ! run_restic "${DEST_TIMEOUTS[$i]}" restic snapshots >/dev/null; then
         restic_log "Repository not yet initialized (or unreachable) for destination '${DEST_NAMES[$i]}', attempting 'restic init'..."
-        if timeout "${DEST_TIMEOUTS[$i]}" restic init; then
+        if run_restic "${DEST_TIMEOUTS[$i]}" restic init; then
             restic_log "Repository initialized successfully for destination '${DEST_NAMES[$i]}'"
         else
-            restic_log "⚠ ERROR: Failed to initialize repository for destination '${DEST_NAMES[$i]}' (timed out after ${DEST_TIMEOUTS[$i]}s or failed), skipping it for this run"
+            restic_log "⚠ ERROR: Failed to initialize repository for destination '${DEST_NAMES[$i]}', skipping it for this run"
             DEST_OK[$i]=0
         fi
     else
@@ -192,15 +209,19 @@ if [ -e "{{ path }}" ]; then
             DEST_OK[$i]=0
             continue
         fi
-        restic_log "Backing up {{ path }} to destination '${DEST_NAMES[$i]}' (timeout ${DEST_TIMEOUTS[$i]}s)..."
-        if ! timeout "${DEST_TIMEOUTS[$i]}" restic backup \
+        if [ "${DEST_TIMEOUTS[$i]}" -gt 0 ]; then
+            restic_log "Backing up {{ path }} to destination '${DEST_NAMES[$i]}' (hard timeout ${DEST_TIMEOUTS[$i]}s)..."
+        else
+            restic_log "Backing up {{ path }} to destination '${DEST_NAMES[$i]}' (no hard timeout)..."
+        fi
+        if ! run_restic "${DEST_TIMEOUTS[$i]}" restic backup \
             --tag="{{ service_name }}" \
-            "${EXCLUDE_ARGS[@]}" \
+            "${EXCLUDE_ARGS[@]:-}" \
 {% for exclude in service_config.get('excludes', []) %}
             --exclude "{{ exclude }}" \
 {% endfor %}
             "{{ path }}"; then
-            restic_log "⚠ ERROR: Backup of {{ path }} to destination '${DEST_NAMES[$i]}' failed (or timed out after ${DEST_TIMEOUTS[$i]}s)"
+            restic_log "⚠ ERROR: Backup of {{ path }} to destination '${DEST_NAMES[$i]}' failed"
             DEST_OK[$i]=0
         else
             restic_log "Finished backing up {{ path }} to destination '${DEST_NAMES[$i]}'"
@@ -226,13 +247,17 @@ for i in "${!DEST_NAMES[@]}"; do
         DEST_OK[$i]=0
         continue
     fi
-    restic_log "Pruning destination '${DEST_NAMES[$i]}' (timeout ${DEST_TIMEOUTS[$i]}s)..."
-    if ! timeout "${DEST_TIMEOUTS[$i]}" restic forget \
+    if [ "${DEST_TIMEOUTS[$i]}" -gt 0 ]; then
+        restic_log "Pruning destination '${DEST_NAMES[$i]}' (hard timeout ${DEST_TIMEOUTS[$i]}s)..."
+    else
+        restic_log "Pruning destination '${DEST_NAMES[$i]}' (no hard timeout)..."
+    fi
+    if ! run_restic "${DEST_TIMEOUTS[$i]}" restic forget \
         --keep-daily {{ restic_keep_daily }} \
         --keep-weekly {{ restic_keep_weekly }} \
         --keep-monthly {{ restic_keep_monthly }} \
         --prune; then
-        restic_log "⚠ ERROR: Pruning destination '${DEST_NAMES[$i]}' failed (or timed out after ${DEST_TIMEOUTS[$i]}s)"
+        restic_log "⚠ ERROR: Pruning destination '${DEST_NAMES[$i]}' failed"
         DEST_OK[$i]=0
     else
         restic_log "Finished pruning destination '${DEST_NAMES[$i]}'"
@@ -284,7 +309,7 @@ for i in "${!DEST_NAMES[@]}"; do
         continue
     fi
     restic_log "Destination '${DEST_NAMES[$i]}':"
-    timeout "${DEST_TIMEOUTS[$i]}" restic stats || echo "⚠ Warning: Failed to gather stats for destination '${DEST_NAMES[$i]}' (or timed out after ${DEST_TIMEOUTS[$i]}s)"
+    run_restic "${DEST_TIMEOUTS[$i]}" restic stats || echo "⚠ Warning: Failed to gather stats for destination '${DEST_NAMES[$i]}'"
     echo ""
 done
 

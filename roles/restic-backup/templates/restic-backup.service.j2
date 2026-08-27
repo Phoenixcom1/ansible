@@ -22,5 +22,9 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=restic-backup
 
-# Timeout (2 hours max)
-TimeoutStartSec=7200
+# Timeout: rely on the script's own per-destination timeouts (which fail
+# just that destination, not the whole run) rather than a blunt service-wide
+# cutoff - a large first-time backup to a new destination can legitimately
+# run for hours. Override restic_service_timeout_seconds if you want a hard
+# service-level cap instead.
+TimeoutStartSec={{ restic_service_timeout_seconds }}

@@ -191,15 +191,18 @@ if `restic_repository` itself is a `rest:` URL.
 
 ### Destination Fault Isolation & Timeouts
 
-Every restic call (init/backup/prune/stats) is wrapped with `timeout` so an
-unreachable or hung destination (e.g. a REST server that's down) fails after
-a bounded time instead of blocking the whole run indefinitely. Default is
-`restic_command_timeout_seconds: 1800` (30 min); override per destination:
+Every restic call (init/backup/prune/stats) is isolated per destination. By
+default there is no hard kill (`restic_command_timeout_seconds: 0`) because a
+large first-time backup to a new/off-site destination can legitimately run for
+hours.
+
+If you still want a last-resort hard cap for a genuinely hung destination, set
+`restic_command_timeout_seconds` globally or override it per destination:
 
 ```yaml
 restic_additional_destinations:
   - name: rest-offsite
-    command_timeout_seconds: 300
+    command_timeout_seconds: 10800 # 3 hours; 0 disables hard timeout
     ...
 ```
 
@@ -505,11 +508,12 @@ sudo cat /proc/<restic-pid>/environ | tr '\0' '\n' | grep RESTIC_REPOSITORY
 sudo ss -tnp | grep <restic-pid>
 ```
 
-This identifies which destination it's stuck on and whether it's still trying
-to connect (`SYN_SENT`). As of this role's `timeout` wrapping, this should
-self-resolve within `restic_command_timeout_seconds`; a hang beyond that means
-an even older/undeployed version of the script is still running - redeploy
-the role and restart the service.
+This identifies which destination it's busy with and whether it's still trying
+to connect (`SYN_SENT`). With the default configuration the role will keep the
+operation running and emit long-running heartbeat log lines instead of killing
+it. If you set `restic_command_timeout_seconds` to a positive value, the
+operation is killed after that many seconds and only that destination is marked
+failed for the rest of the run.
 
 ## Files Created
 

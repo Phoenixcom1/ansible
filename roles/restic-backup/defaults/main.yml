@@ -20,11 +20,16 @@ restic_rest_username: ""
 restic_rest_password: ""
 restic_rest_credentials_file: "/root/.restic-rest-creds"
 
-# Bounds how long a single restic invocation (init/backup/forget/stats) may
-# run against any one destination. Prevents an unreachable/hung destination
-# (e.g. an offline REST server) from blocking the whole backup run instead of
-# just failing that destination.
-restic_command_timeout_seconds: 1800
+# Optional hard cap for a single restic invocation (init/backup/forget/stats)
+# against one destination. Set to 0 to disable the hard cap. Large first-time
+# backups can legitimately run for hours, so the default is no hard kill.
+restic_command_timeout_seconds: 0
+
+# systemd's own hard cap on the whole backup run. "infinity" defers entirely
+# to the per-destination timeouts above (recommended, since those isolate a
+# slow/large destination instead of killing everything). Set a real value
+# only if you want a blunt overall backstop regardless of destinations.
+restic_service_timeout_seconds: "infinity"
 
 # Backup schedule (systemd timer format)
 restic_backup_time: "*-*-* 02:00:00" # Daily at 2 AM
