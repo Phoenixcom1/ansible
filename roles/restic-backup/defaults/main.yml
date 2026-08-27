@@ -12,6 +12,20 @@ restic_password_file: "/root/.restic-password"
 restic_backup_user: root
 restic_backup_group: root
 
+# Optional HTTP basic auth for the primary destination, only needed when
+# restic_repository points at a "rest:" backend that requires it. Leave
+# restic_rest_username empty to skip (the default NAS-backed repository
+# doesn't need this).
+restic_rest_username: ""
+restic_rest_password: ""
+restic_rest_credentials_file: "/root/.restic-rest-creds"
+
+# Bounds how long a single restic invocation (init/backup/forget/stats) may
+# run against any one destination. Prevents an unreachable/hung destination
+# (e.g. an offline REST server) from blocking the whole backup run instead of
+# just failing that destination.
+restic_command_timeout_seconds: 1800
+
 # Backup schedule (systemd timer format)
 restic_backup_time: "*-*-* 02:00:00" # Daily at 2 AM
 
@@ -102,6 +116,12 @@ restic_backup_services:
     stop_before_backup: true
     compose_file: "{{ podman_service_dir }}/immich/compose_immich.yml"
     project_name: immich
+    # Optional: restrict this service to a subset of restic_all_destinations
+    # (by "name"), instead of backing up to every configured destination.
+    # Useful when a service already has its own backup elsewhere and only
+    # needs the secondary/off-site copy from this role.
+    # destinations:
+    #   - rest-offsite
     paths:
       - "{{ podman_service_dir }}/immich/upload" # User-uploaded photos and videos
       - "{{ podman_service_dir }}/immich/postgres" # PostgreSQL database with metadata
@@ -137,3 +157,46 @@ restic_nas_credentials: "/root/.smb_restic_creds"
 restic_nas_username: "restic-backup"
 restic_nas_password: "{{ truenas_restic_smb_password | default('', true) }}"
 restic_nas_mount_options: "vers=3.1.1,_netdev,credentials={{ restic_nas_credentials }},uid=0,gid=0,file_mode=0600,dir_mode=0700"
+
+# Additional backup destinations, backed up to alongside the primary
+# restic_repository/NAS above. Every enabled service is backed up to each
+# destination in this list in turn. Each destination needs its own restic
+# repository and password file; if it lives on its own NAS share, define its
+# own "nas" mount settings too (omit "nas" entirely to reuse an already
+# mounted path, e.g. a local disk). Each destination may also set its own
+# "command_timeout_seconds", overriding restic_command_timeout_seconds -
+# handy for a flaky/being-set-up destination that shouldn't retry for the
+# full default duration before failing.
+restic_additional_destinations: []
+# Example (a second, off-site TrueNAS share reached over NFS):
+# restic_additional_destinations:
+#   - name: offsite
+#     repository: "/mnt/backup-offsite/restic-{{ inventory_hostname }}"
+#     password_file: "/root/.restic-password-offsite"
+#     nas:
+#       enabled: true
+#       fstype: nfs
+#       source: "truenas2.{{ customer_domain }}:/mnt/tank/apps/podman-backups-offsite"
+#       mount_point: "/mnt/backup-offsite"
+#       mount_options: "_netdev"
+#   - name: onsite-second-share
+#     repository: "/mnt/backup-secondary/restic-{{ inventory_hostname }}"
+#     password_file: "/root/.restic-password-secondary"
+#     nas:
+#       enabled: true
+#       fstype: cifs
+#       source: "//truenas.{{ customer_domain }}/podman-backups-secondary"
+#       mount_point: "/mnt/backup-secondary"
+#       credentials: "/root/.smb_restic_creds_secondary"
+#       username: "restic-backup-secondary"
+#       password: "{{ truenas_restic_secondary_smb_password }}"
+#       mount_options: "vers=3.1.1,_netdev,credentials=/root/.smb_restic_creds_secondary,uid=0,gid=0,file_mode=0600,dir_mode=0700"
+#   - name: rest-offsite
+#     # A "rest:" repository needs no mount at all - restic talks to it over HTTP(S).
+#     repository: "rest:https://backup.example.net:8000/example-repo"
+#     password_file: "/root/.restic-password-rest-offsite"
+#     rest:
+#       username: "restic-user"
+#       password: "{{ vaulted_restic_rest_offsite_password }}"
+#       # Optional; defaults to /root/.restic-rest-<name>-creds if omitted.
+#       credentials_file: "/root/.restic-rest-offsite-creds"

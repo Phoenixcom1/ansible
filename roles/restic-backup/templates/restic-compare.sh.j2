@@ -4,23 +4,60 @@
 
 set -euo pipefail
 
-# Configuration
-RESTIC_REPOSITORY="{{ restic_repository }}"
-RESTIC_PASSWORD_FILE="{{ restic_password_file }}"
+# Backup destinations (parallel arrays: name / repository / password file / REST creds file)
+declare -a DEST_NAMES=()
+declare -a DEST_REPOS=()
+declare -a DEST_PASSWORD_FILES=()
+declare -a DEST_REST_CREDS=()
+{% for dest in restic_all_destinations %}
+DEST_NAMES+=("{{ dest.name }}")
+DEST_REPOS+=("{{ dest.repository }}")
+DEST_PASSWORD_FILES+=("{{ dest.password_file }}")
+DEST_REST_CREDS+=("{{ dest.rest.credentials_file if dest.rest is defined and dest.rest else '' }}")
+{% endfor %}
+
+# Get service tag and optional destination name from arguments
+SERVICE_TAG="${1:-}"
+DEST_NAME="${2:-${DEST_NAMES[0]}}"
+
+if [ -z "$SERVICE_TAG" ]; then
+    echo "Usage: $0 <service-tag> [destination-name]"
+    echo ""
+    echo "Available destinations:"
+    printf '  - %s\n' "${DEST_NAMES[@]}"
+    exit 1
+fi
+
+RESTIC_REPOSITORY=""
+RESTIC_PASSWORD_FILE=""
+REST_CREDS=""
+for i in "${!DEST_NAMES[@]}"; do
+    if [ "${DEST_NAMES[$i]}" = "$DEST_NAME" ]; then
+        RESTIC_REPOSITORY="${DEST_REPOS[$i]}"
+        RESTIC_PASSWORD_FILE="${DEST_PASSWORD_FILES[$i]}"
+        REST_CREDS="${DEST_REST_CREDS[$i]}"
+    fi
+done
+
+if [ -z "$RESTIC_REPOSITORY" ]; then
+    echo "Error: Unknown destination '$DEST_NAME'"
+    echo "Available destinations:"
+    printf '  - %s\n' "${DEST_NAMES[@]}"
+    exit 1
+fi
 
 export RESTIC_REPOSITORY
 export RESTIC_PASSWORD_FILE
-
-# Get service tag from argument
-SERVICE_TAG="${1:-}"
-
-if [ -z "$SERVICE_TAG" ]; then
-    echo "Usage: $0 <service-tag>"
-    echo ""
-    echo "Available service tags:"
-    restic snapshots --json | jq -r '.[].tags[]' | sort -u | sed 's/^/  - /'
-    exit 1
+unset RESTIC_REST_USERNAME RESTIC_REST_PASSWORD || true
+if [ -n "$REST_CREDS" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$REST_CREDS"
+    set +a
 fi
+
+echo "Using destination: $DEST_NAME ($RESTIC_REPOSITORY)"
+echo ""
 
 echo "=========================================="
 echo "Comparing last two backups for: $SERVICE_TAG"

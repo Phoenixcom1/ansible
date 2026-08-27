@@ -4,10 +4,6 @@
 
 set -euo pipefail
 
-# Configuration
-RESTIC_REPOSITORY="{{ restic_repository }}"
-RESTIC_PASSWORD_FILE="{{ restic_password_file }}"
-
 # Logging
 LOG_FILE="/var/log/restic-backup.log"
 exec 1> >(tee -a "$LOG_FILE")
@@ -17,22 +13,86 @@ echo "=========================================="
 echo "Restic backup started: $(date)"
 echo "=========================================="
 
-# Check if repository is accessible
-if [ ! -d "$(dirname "$RESTIC_REPOSITORY")" ]; then
-    echo "ERROR: Repository parent directory does not exist: $(dirname "$RESTIC_REPOSITORY")"
-    exit 1
-fi
+# Prefixes every message with a timestamp so long-running/hung steps are easy
+# to spot in the log (a gap between two log lines means something in between
+# is still running or stuck). Named restic_log to avoid clashing with the
+# macOS/systemd "log" command if this script is ever tested outside a VM.
+restic_log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
 
-# Export environment variables for restic
-export RESTIC_REPOSITORY
-export RESTIC_PASSWORD_FILE
+# Backup destinations (parallel arrays: name / repository / password file / REST creds file)
+declare -a DEST_NAMES=()
+declare -a DEST_REPOS=()
+declare -a DEST_PASSWORD_FILES=()
+declare -a DEST_REST_CREDS=()
+declare -a DEST_TIMEOUTS=()
+{% for dest in restic_all_destinations %}
+DEST_NAMES+=("{{ dest.name }}")
+DEST_REPOS+=("{{ dest.repository }}")
+DEST_PASSWORD_FILES+=("{{ dest.password_file }}")
+DEST_REST_CREDS+=("{{ dest.rest.credentials_file if dest.rest is defined and dest.rest else '' }}")
+DEST_TIMEOUTS+=("{{ dest.command_timeout_seconds | default(restic_command_timeout_seconds) }}")
+{% endfor %}
 
-# Initialize repository if it doesn't exist
-if ! restic snapshots &>/dev/null; then
-    echo "Initializing new restic repository..."
-    restic init
-    echo "Repository initialized successfully"
-fi
+# Exports RESTIC_REPOSITORY/RESTIC_PASSWORD_FILE for destination $1, and loads
+# RESTIC_REST_USERNAME/RESTIC_REST_PASSWORD from its credentials file if set.
+# Returns non-zero (without aborting the script) if the credentials file is missing.
+select_destination() {
+    local idx="$1"
+    export RESTIC_REPOSITORY="${DEST_REPOS[$idx]}"
+    export RESTIC_PASSWORD_FILE="${DEST_PASSWORD_FILES[$idx]}"
+    unset RESTIC_REST_USERNAME RESTIC_REST_PASSWORD || true
+    local rest_creds="${DEST_REST_CREDS[$idx]}"
+    if [ -n "$rest_creds" ]; then
+        if [ ! -f "$rest_creds" ]; then
+            echo "⚠ ERROR: REST credentials file not found for destination '${DEST_NAMES[$idx]}': $rest_creds"
+            return 1
+        fi
+        set -a
+        # shellcheck disable=SC1090
+        source "$rest_creds"
+        set +a
+        restic_log "Selected destination '${DEST_NAMES[$idx]}' -> repository=${RESTIC_REPOSITORY} (REST auth: ${RESTIC_REST_USERNAME:-<none>})"
+    else
+        restic_log "Selected destination '${DEST_NAMES[$idx]}' -> repository=${RESTIC_REPOSITORY}"
+    fi
+}
+
+# Tracks per-destination health; a destination that fails init/backup/prune is
+# skipped for the rest of this run but never aborts the others or the script.
+declare -a DEST_OK=()
+for i in "${!DEST_NAMES[@]}"; do
+    DEST_OK+=(1)
+done
+
+# Initialize each destination's repository if needed
+for i in "${!DEST_NAMES[@]}"; do
+    restic_log "Checking destination '${DEST_NAMES[$i]}'..."
+    if ! select_destination "$i"; then
+        DEST_OK[$i]=0
+        continue
+    fi
+
+    if [[ "$RESTIC_REPOSITORY" != rest:* ]] && [ ! -d "$(dirname "$RESTIC_REPOSITORY")" ]; then
+        restic_log "ERROR: Repository parent directory does not exist for destination '${DEST_NAMES[$i]}': $(dirname "$RESTIC_REPOSITORY")"
+        DEST_OK[$i]=0
+        continue
+    fi
+
+    restic_log "Running 'restic snapshots' against destination '${DEST_NAMES[$i]}' (timeout ${DEST_TIMEOUTS[$i]}s) to check if it's already initialized..."
+    if ! timeout "${DEST_TIMEOUTS[$i]}" restic snapshots >/dev/null; then
+        restic_log "Repository not yet initialized (or unreachable) for destination '${DEST_NAMES[$i]}', attempting 'restic init'..."
+        if timeout "${DEST_TIMEOUTS[$i]}" restic init; then
+            restic_log "Repository initialized successfully for destination '${DEST_NAMES[$i]}'"
+        else
+            restic_log "⚠ ERROR: Failed to initialize repository for destination '${DEST_NAMES[$i]}' (timed out after ${DEST_TIMEOUTS[$i]}s or failed), skipping it for this run"
+            DEST_OK[$i]=0
+        fi
+    else
+        restic_log "Destination '${DEST_NAMES[$i]}' already initialized"
+    fi
+done
 
 # Build exclude arguments
 EXCLUDE_ARGS=()
@@ -46,7 +106,7 @@ declare -a STOPPED_SYSTEMD_UNITS=()
 
 # Pre-backup actions
 echo ""
-echo "Running pre-backup actions..."
+restic_log "Running pre-backup actions..."
 
 {% if 'paperless' in restic_backup_enabled_services %}
 # Paperless: Run document exporter for consistent backup
@@ -69,7 +129,7 @@ fi
 # {{ service_name }}: Stop the rootless Quadlet service for a consistent backup.
 SYSTEMD_UNIT="{{ service_config.systemd_user_unit }}"
 SYSTEMD_USER="{{ service_config.systemd_user | default(podman_username) }}"
-echo "Stopping {{ service_name }} (${SYSTEMD_UNIT}) for safe backup..."
+restic_log "Stopping {{ service_name }} (${SYSTEMD_UNIT}) for safe backup..."
 if [ "$(id -un)" = "${SYSTEMD_USER}" ]; then
     XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user stop "${SYSTEMD_UNIT}"
 else
@@ -78,18 +138,18 @@ else
         systemctl --user stop "${SYSTEMD_UNIT}"
 fi
 STOPPED_SYSTEMD_UNITS+=("${SYSTEMD_USER}|${SYSTEMD_UNIT}")
-echo "✓ {{ service_name }} stopped"
+restic_log "✓ {{ service_name }} stopped"
 {% else %}
 # {{ service_name }}: Stop compose stack for safe database backup
 COMPOSE_FILE="{{ service_config.compose_file }}"
 PROJECT_NAME="{{ service_config.project_name }}"
-echo "Stopping {{ service_name }} (project: ${PROJECT_NAME}) for safe backup..."
+restic_log "Stopping {{ service_name }} (project: ${PROJECT_NAME}) for safe backup..."
 if [ -f "${COMPOSE_FILE}" ]; then
     su - {{ podman_username }} -c "podman-compose -f ${COMPOSE_FILE} --project-name ${PROJECT_NAME} down" || {
         echo "⚠ Warning: Failed to stop ${PROJECT_NAME}, backup may be inconsistent"
     }
     STOPPED_SERVICES+=("${COMPOSE_FILE}|${PROJECT_NAME}")
-    echo "✓ {{ service_name }} stopped"
+    restic_log "✓ {{ service_name }} stopped"
 else
     echo "⚠ Warning: Compose file ${COMPOSE_FILE} not found, skipping {{ service_name }} stop"
 fi
@@ -104,17 +164,49 @@ echo ""
 {% for service_name, service_config in restic_backup_services.items() %}
 {% if service_name in restic_backup_enabled_services %}
 echo ""
-echo "Backing up {{ service_name }}..."
+restic_log "Backing up {{ service_name }}..."
+{% set service_destinations = service_config.destinations | default(restic_all_destinations | map(attribute='name') | list) %}
+declare -a SERVICE_DESTS=(
+{% for dname in service_destinations %}
+    "{{ dname }}"
+{% endfor %}
+)
 {% for path in service_config.paths %}
 if [ -d "{{ path }}" ]; then
-    restic backup \
-        --tag="{{ service_name }}" \
-        "${EXCLUDE_ARGS[@]}" \
+    for i in "${!DEST_NAMES[@]}"; do
+        DEST_ALLOWED=false
+        for allowed in "${SERVICE_DESTS[@]}"; do
+            if [ "${DEST_NAMES[$i]}" = "$allowed" ]; then
+                DEST_ALLOWED=true
+                break
+            fi
+        done
+        if [ "$DEST_ALLOWED" = false ]; then
+            continue
+        fi
+        if [ "${DEST_OK[$i]}" = "0" ]; then
+            echo "⚠ Skipping destination '${DEST_NAMES[$i]}' (previously failed this run)"
+            continue
+        fi
+        if ! select_destination "$i"; then
+            DEST_OK[$i]=0
+            continue
+        fi
+        restic_log "Backing up {{ path }} to destination '${DEST_NAMES[$i]}' (timeout ${DEST_TIMEOUTS[$i]}s)..."
+        if ! timeout "${DEST_TIMEOUTS[$i]}" restic backup \
+            --tag="{{ service_name }}" \
+            "${EXCLUDE_ARGS[@]}" \
 {% for exclude in service_config.get('excludes', []) %}
-        --exclude "{{ exclude }}" \
+            --exclude "{{ exclude }}" \
 {% endfor %}
-        "{{ path }}"
-    echo "✓ {{ service_name }} backed up successfully"
+            "{{ path }}"; then
+            restic_log "⚠ ERROR: Backup of {{ path }} to destination '${DEST_NAMES[$i]}' failed (or timed out after ${DEST_TIMEOUTS[$i]}s)"
+            DEST_OK[$i]=0
+        else
+            restic_log "Finished backing up {{ path }} to destination '${DEST_NAMES[$i]}'"
+        fi
+    done
+    echo "✓ {{ service_name }} backup attempted on configured destinations (${SERVICE_DESTS[*]})"
 else
     echo "⚠ Warning: {{ path }} does not exist, skipping"
 fi
@@ -124,35 +216,51 @@ fi
 
 # Prune old snapshots
 echo ""
-echo "Pruning old snapshots..."
-restic forget \
-    --keep-daily {{ restic_keep_daily }} \
-    --keep-weekly {{ restic_keep_weekly }} \
-    --keep-monthly {{ restic_keep_monthly }} \
-    --prune
+restic_log "Pruning old snapshots..."
+for i in "${!DEST_NAMES[@]}"; do
+    if [ "${DEST_OK[$i]}" = "0" ]; then
+        echo "⚠ Skipping prune for destination '${DEST_NAMES[$i]}' (previously failed this run)"
+        continue
+    fi
+    if ! select_destination "$i"; then
+        DEST_OK[$i]=0
+        continue
+    fi
+    restic_log "Pruning destination '${DEST_NAMES[$i]}' (timeout ${DEST_TIMEOUTS[$i]}s)..."
+    if ! timeout "${DEST_TIMEOUTS[$i]}" restic forget \
+        --keep-daily {{ restic_keep_daily }} \
+        --keep-weekly {{ restic_keep_weekly }} \
+        --keep-monthly {{ restic_keep_monthly }} \
+        --prune; then
+        restic_log "⚠ ERROR: Pruning destination '${DEST_NAMES[$i]}' failed (or timed out after ${DEST_TIMEOUTS[$i]}s)"
+        DEST_OK[$i]=0
+    else
+        restic_log "Finished pruning destination '${DEST_NAMES[$i]}'"
+    fi
+done
 
 # Restart stopped services
 if [ {% raw %}${#STOPPED_SERVICES[@]}{% endraw %} -gt 0 ]; then
     echo ""
-    echo "Restarting stopped services..."
+    restic_log "Restarting stopped services..."
     for SERVICE_INFO in "${STOPPED_SERVICES[@]}"; do
         COMPOSE_FILE="{% raw %}${SERVICE_INFO%%|*}{% endraw %}"
         PROJECT_NAME="{% raw %}${SERVICE_INFO##*|}{% endraw %}"
-        echo "Starting project ${PROJECT_NAME}..."
+        restic_log "Starting project ${PROJECT_NAME}..."
         su - {{ podman_username }} -c "podman-compose -f ${COMPOSE_FILE} --project-name ${PROJECT_NAME} up -d" || {
-            echo "⚠ ERROR: Failed to restart ${PROJECT_NAME}!"
+            restic_log "⚠ ERROR: Failed to restart ${PROJECT_NAME}!"
         }
-        echo "✓ ${PROJECT_NAME} restarted"
+        restic_log "✓ ${PROJECT_NAME} restarted"
     done
 fi
 
 if [ {% raw %}${#STOPPED_SYSTEMD_UNITS[@]}{% endraw %} -gt 0 ]; then
     echo ""
-    echo "Restarting stopped user services..."
+    restic_log "Restarting stopped user services..."
     for SERVICE_INFO in "${STOPPED_SYSTEMD_UNITS[@]}"; do
         SYSTEMD_USER="{% raw %}${SERVICE_INFO%%|*}{% endraw %}"
         SYSTEMD_UNIT="{% raw %}${SERVICE_INFO##*|}{% endraw %}"
-        echo "Starting ${SYSTEMD_UNIT} for ${SYSTEMD_USER}..."
+        restic_log "Starting ${SYSTEMD_UNIT} for ${SYSTEMD_USER}..."
         if [ "$(id -un)" = "${SYSTEMD_USER}" ]; then
             XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user start "${SYSTEMD_UNIT}"
         else
@@ -160,16 +268,41 @@ if [ {% raw %}${#STOPPED_SYSTEMD_UNITS[@]}{% endraw %} -gt 0 ]; then
                 XDG_RUNTIME_DIR="/run/user/$(id -u "${SYSTEMD_USER}")" \
                 systemctl --user start "${SYSTEMD_UNIT}"
         fi
-        echo "✓ ${SYSTEMD_UNIT} started"
+        restic_log "✓ ${SYSTEMD_UNIT} started"
     done
 fi
 
 # Show repository statistics
 echo ""
-echo "Repository statistics:"
-restic stats
+restic_log "Repository statistics:"
+for i in "${!DEST_NAMES[@]}"; do
+    if [ "${DEST_OK[$i]}" = "0" ]; then
+        echo "⚠ Skipping stats for destination '${DEST_NAMES[$i]}' (previously failed this run)"
+        continue
+    fi
+    if ! select_destination "$i"; then
+        continue
+    fi
+    restic_log "Destination '${DEST_NAMES[$i]}':"
+    timeout "${DEST_TIMEOUTS[$i]}" restic stats || echo "⚠ Warning: Failed to gather stats for destination '${DEST_NAMES[$i]}' (or timed out after ${DEST_TIMEOUTS[$i]}s)"
+    echo ""
+done
+
+# Surface failures (systemd/journal) only after every destination was
+# attempted and any stopped containers were restarted above.
+declare -a FAILED_DESTS=()
+for i in "${!DEST_NAMES[@]}"; do
+    if [ "${DEST_OK[$i]}" = "0" ]; then
+        FAILED_DESTS+=("${DEST_NAMES[$i]}")
+    fi
+done
 
 echo ""
 echo "=========================================="
 echo "Restic backup completed: $(date)"
 echo "=========================================="
+
+if [ {% raw %}${#FAILED_DESTS[@]}{% endraw %} -gt 0 ]; then
+    echo "⚠ One or more destinations failed: ${FAILED_DESTS[*]}"
+    exit 1
+fi

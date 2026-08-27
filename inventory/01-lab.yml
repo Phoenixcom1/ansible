@@ -40,6 +40,13 @@ all:
       restic_backup_enabled_services:
         - vaultwarden
         - homepage
+      restic_additional_destinations:
+        - name: rest-offsite
+          repository: "rest:https://restic.kerberos.bitsnbyt.es/restic/podman-vm-pve0"
+          password_file: "/root/.restic-password-rest-offsite"
+          rest:
+            username: "restic"
+            password: "{{ restic_rest_offsite_password }}"
       truenas_replication_enabled: true
       truenas_replication_destination_api_url: "https://192.168.1.228"
       truenas_replication_destination_api_validate_certs: false

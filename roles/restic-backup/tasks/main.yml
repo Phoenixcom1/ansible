@@ -45,16 +45,53 @@
     - restic_nas_enabled | bool
     - restic_nas_fstype in ['nfs', 'nfs4']
 
-- name: Require the dedicated TrueNAS SMB backup password
+- name: Determine whether the primary NAS destination is usable
+  set_fact:
+    restic_nas_ready: >-
+      {{ (restic_nas_enabled | bool) and
+         not (restic_nas_fstype == 'cifs' and (restic_nas_password | string | length == 0)) }}
+
+- name: Initialize whether any enabled service actually uses the primary destination
+  set_fact:
+    restic_primary_needed: false
+
+- name: Determine whether any enabled service uses the primary destination
+  set_fact:
+    restic_primary_needed: >-
+      {{ restic_primary_needed or
+         (restic_backup_services[item].destinations is not defined) or
+         ('primary' in restic_backup_services[item].destinations) }}
+  loop: "{{ restic_backup_enabled_services }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Require the dedicated TrueNAS SMB backup password when actually needed
   assert:
     that: restic_nas_password | string | length > 0
     fail_msg: >-
-      Define truenas_restic_smb_password in vaulted inventory before enabling
-      a Restic backup service.
+      Define truenas_restic_smb_password in vaulted inventory - it's required
+      because at least one entry in restic_backup_enabled_services on this
+      host uses the primary NAS-backed destination.
   no_log: true
   when:
     - restic_nas_enabled | bool
     - restic_nas_fstype == 'cifs'
+    - restic_nas_password | string | length == 0
+    - restic_primary_needed | bool
+
+- name: Warn if the TrueNAS SMB backup password is missing but the primary destination is unused
+  debug:
+    msg: >-
+      truenas_restic_smb_password is not set, but none of the services in
+      restic_backup_enabled_services route to the primary NAS-backed
+      destination (they all use a restricted "destinations" list instead), so
+      skipping the NAS mount instead of failing. Define it in vaulted
+      inventory before routing any service to the primary destination.
+  when:
+    - restic_nas_enabled | bool
+    - restic_nas_fstype == 'cifs'
+    - restic_nas_password | string | length == 0
+    - not (restic_primary_needed | bool)
 
 - name: Create Restic SMB credentials file
   copy:
@@ -68,7 +105,7 @@
   become: true
   no_log: true
   when:
-    - restic_nas_enabled | bool
+    - restic_nas_ready
     - restic_nas_fstype == 'cifs'
 
 - name: Create NAS mount point directory
@@ -80,7 +117,7 @@
     mode: "0700"
   become: true
   when:
-    - restic_nas_enabled | bool
+    - restic_nas_ready
 
 - name: Mount NAS backup directory
   mount:
@@ -93,7 +130,7 @@
     passno: 0
   become: true
   when:
-    - restic_nas_enabled | bool
+    - restic_nas_ready
 
 - name: Wait for NAS mount to be available
   wait_for:
@@ -101,7 +138,7 @@
     state: present
     timeout: 30
   when:
-    - restic_nas_enabled | bool
+    - restic_nas_ready
 
 # Setup restic password
 - name: Check if restic password file exists
@@ -133,6 +170,206 @@
       Restic password file created at {{ restic_password_file }}
       IMPORTANT: Save this password securely! You'll need it to restore backups.
   when: not restic_password_stat.stat.exists
+
+# Additional backup destinations (second NAS share, off-site copy, etc.)
+- name: Install CIFS utilities for additional NAS destinations on Debian/Ubuntu
+  apt:
+    name: cifs-utils
+    state: present
+  become: true
+  loop: "{{ restic_additional_destinations }}"
+  loop_control:
+    label: "{{ item.name | default('destination') }}"
+  when:
+    - item.nas is defined
+    - item.nas.enabled | default(true)
+    - item.nas.fstype | default('cifs') == 'cifs'
+    - host_is_debian | default(ansible_facts['os_family'] == 'Debian')
+
+- name: Install CIFS utilities for additional NAS destinations on Fedora/RHEL
+  ansible.builtin.command:
+    cmd: dnf install -y cifs-utils
+  become: true
+  loop: "{{ restic_additional_destinations }}"
+  loop_control:
+    label: "{{ item.name | default('destination') }}"
+  when:
+    - item.nas is defined
+    - item.nas.enabled | default(true)
+    - item.nas.fstype | default('cifs') == 'cifs'
+    - host_is_redhat | default(ansible_facts['os_family'] == 'RedHat')
+  changed_when: false
+
+- name: Install NFS utilities for additional NAS destinations
+  package:
+    name: "{{ 'nfs-common' if ansible_facts['os_family'] == 'Debian' else 'nfs-utils' }}"
+    state: present
+  become: true
+  loop: "{{ restic_additional_destinations }}"
+  loop_control:
+    label: "{{ item.name | default('destination') }}"
+  when:
+    - item.nas is defined
+    - item.nas.enabled | default(true)
+    - item.nas.fstype | default('cifs') in ['nfs', 'nfs4']
+
+- name: Warn about additional NAS destinations missing a CIFS password
+  debug:
+    msg: >-
+      Destination '{{ item.name | default('destination') }}' has no
+      nas.password set - skipping its mount (and this destination) until one
+      is provided.
+  loop: "{{ restic_additional_destinations }}"
+  loop_control:
+    label: "{{ item.name | default('destination') }}"
+  when:
+    - item.nas is defined
+    - item.nas.enabled | default(true)
+    - item.nas.fstype | default('cifs') == 'cifs'
+    - item.nas.password | default('') | string | length == 0
+
+- name: Create mount point directories for additional NAS destinations
+  file:
+    path: "{{ item.nas.mount_point }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  become: true
+  loop: "{{ restic_additional_destinations }}"
+  loop_control:
+    label: "{{ item.name | default('destination') }}"
+  when:
+    - item.nas is defined
+    - item.nas.enabled | default(true)
+    - item.nas.fstype | default('cifs') != 'cifs' or item.nas.password | default('') | string | length > 0
+
+- name: Create SMB credentials files for additional NAS destinations
+  copy:
+    dest: "{{ item.nas.credentials }}"
+    content: |
+      username={{ item.nas.username }}
+      password={{ item.nas.password }}
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  no_log: true
+  loop: "{{ restic_additional_destinations }}"
+  loop_control:
+    label: "{{ item.name | default('destination') }}"
+  when:
+    - item.nas is defined
+    - item.nas.enabled | default(true)
+    - item.nas.fstype | default('cifs') == 'cifs'
+    - item.nas.password | default('') | string | length > 0
+
+- name: Mount additional NAS backup directories
+  mount:
+    path: "{{ item.nas.mount_point }}"
+    src: "{{ item.nas.source }}"
+    fstype: "{{ item.nas.fstype | default('cifs') }}"
+    opts: "{{ item.nas.mount_options }}"
+    state: mounted
+    dump: 0
+    passno: 0
+  become: true
+  loop: "{{ restic_additional_destinations }}"
+  loop_control:
+    label: "{{ item.name | default('destination') }}"
+  when:
+    - item.nas is defined
+    - item.nas.enabled | default(true)
+    - item.nas.fstype | default('cifs') != 'cifs' or item.nas.password | default('') | string | length > 0
+
+- name: Wait for additional NAS mounts to be available
+  wait_for:
+    path: "{{ item.nas.mount_point }}"
+    state: present
+    timeout: 30
+  loop: "{{ restic_additional_destinations }}"
+  loop_control:
+    label: "{{ item.name | default('destination') }}"
+  when:
+    - item.nas is defined
+    - item.nas.enabled | default(true)
+    - item.nas.fstype | default('cifs') != 'cifs' or item.nas.password | default('') | string | length > 0
+
+- name: Check if additional restic password files exist
+  stat:
+    path: "{{ item.password_file }}"
+  register: restic_additional_password_stat
+  become: true
+  loop: "{{ restic_additional_destinations }}"
+  loop_control:
+    label: "{{ item.name | default('destination') }}"
+
+- name: Create additional restic password files
+  copy:
+    content: "{{ lookup('password', '/dev/null length=32 chars=ascii_letters,digits') }}"
+    dest: "{{ item.item.password_file }}"
+    owner: "{{ restic_backup_user }}"
+    group: "{{ restic_backup_group }}"
+    mode: "0600"
+  become: true
+  no_log: true
+  loop: "{{ restic_additional_password_stat.results }}"
+  loop_control:
+    label: "{{ item.item.name | default('destination') }}"
+  when: not item.stat.exists
+
+# REST server ("rest:" backend) HTTP basic auth, kept in its own root-only
+# file rather than the world-readable backup script.
+- name: Create REST server credentials file for the primary destination
+  copy:
+    dest: "{{ restic_rest_credentials_file }}"
+    content: |
+      RESTIC_REST_USERNAME={{ restic_rest_username }}
+      RESTIC_REST_PASSWORD={{ restic_rest_password }}
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  no_log: true
+  when: restic_rest_username | length > 0
+
+- name: Initialize normalized additional restic destinations list
+  set_fact:
+    restic_additional_destinations_normalized: []
+
+- name: Normalize additional restic destinations' REST credentials file paths and timeouts
+  set_fact:
+    restic_additional_destinations_normalized: >-
+      {{ restic_additional_destinations_normalized | default([]) +
+         [item | combine({'rest': (item.rest | combine({'credentials_file': item.rest.credentials_file | default('/root/.restic-rest-' + item.name + '-creds')}) if item.rest is defined else None),
+                           'command_timeout_seconds': item.command_timeout_seconds | default(restic_command_timeout_seconds)})] }}
+  loop: "{{ restic_additional_destinations }}"
+  loop_control:
+    label: "{{ item.name | default('destination') }}"
+
+- name: Create REST server credentials files for additional destinations
+  copy:
+    dest: "{{ item.rest.credentials_file }}"
+    content: |
+      RESTIC_REST_USERNAME={{ item.rest.username }}
+      RESTIC_REST_PASSWORD={{ item.rest.password }}
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  no_log: true
+  loop: "{{ restic_additional_destinations_normalized }}"
+  loop_control:
+    label: "{{ item.name | default('destination') }}"
+  when: item.rest is defined and item.rest is not none
+
+- name: Build combined list of restic backup destinations
+  set_fact:
+    restic_all_destinations: >-
+      {{ [{'name': 'primary', 'repository': restic_repository, 'password_file': restic_password_file,
+           'command_timeout_seconds': restic_command_timeout_seconds,
+           'rest': ({'username': restic_rest_username, 'password': restic_rest_password, 'credentials_file': restic_rest_credentials_file} if (restic_rest_username | length > 0) else None)}]
+         + restic_additional_destinations_normalized }}
 
 # Create scripts directory
 - name: Create scripts directory
@@ -243,9 +480,12 @@
       ================================================
       Restic Backup Setup Complete
       ================================================
-      Repository: {{ restic_repository }}
-      Password file: {{ restic_password_file }}
       Backup schedule: {{ restic_backup_time }}
+
+      Destinations:
+      {% for dest in restic_all_destinations %}
+      - {{ dest.name }}: {{ dest.repository }} (password file: {{ dest.password_file }})
+      {% endfor %}
 
       Services configured for backup:
       {% for service_name in restic_backup_enabled_services %}
