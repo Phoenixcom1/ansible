@@ -1,0 +1,25 @@
+---
+- name: Add Cloud Sync tasks for job datasets and destinations
+  ansible.builtin.set_fact:
+    truenas_cloud_sync_policy_tasks: "{{ truenas_cloud_sync_policy_tasks | default([]) + [cloud_sync_task] }}"
+  vars:
+    cloud_sync_task:
+      description: "{{ cloud_sync_job.name }} - {{ cloud_sync_pair.0 | basename }} - {{ cloud_sync_pair.1 }}"
+      direction: "{{ cloud_sync_job.direction | default(truenas_cloud_sync_default_direction) }}"
+      transfer_mode: "{{ cloud_sync_job.transfer_mode | default(truenas_cloud_sync_default_transfer_mode) }}"
+      credentials_name: "{{ cloud_sync_pair.1 }}"
+      path: "{{ cloud_sync_pair.0 }}"
+      attributes:
+        folder: "{{ cloud_sync_job.folder | default(cloud_sync_job.name) }}"
+      encryption: "{{ cloud_sync_job.encryption | default(truenas_cloud_sync_default_encryption) | bool }}"
+      filename_encryption: "{{ cloud_sync_job.filename_encryption | default(truenas_cloud_sync_default_filename_encryption) | bool }}"
+      encryption_password: "{{ cloud_sync_job.encryption_password }}"
+      encryption_salt: "{{ cloud_sync_job.encryption_salt }}"
+      snapshot: "{{ cloud_sync_job.snapshot | default(truenas_cloud_sync_default_snapshot) | bool }}"
+      schedule: "{{ cloud_sync_job.schedule | default(truenas_cloud_sync_default_schedule) }}"
+      enabled: "{{ cloud_sync_job.enabled | default(true) | bool }}"
+  loop: "{{ cloud_sync_job.datasets | product(cloud_sync_job.destinations) | list }}"
+  loop_control:
+    loop_var: cloud_sync_pair
+    label: "{{ cloud_sync_job.name }} / {{ cloud_sync_pair.0 }} / {{ cloud_sync_pair.1 }}"
+  no_log: true

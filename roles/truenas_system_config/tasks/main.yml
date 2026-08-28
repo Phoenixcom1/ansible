@@ -1,0 +1,29 @@
+---
+- name: Validate TrueNAS system configuration
+  ansible.builtin.assert:
+    that:
+      - truenas_system_config_api_token | length > 0
+      - truenas_system_config_dns_nameservers | length <= 3
+    fail_msg: "Provide a TrueNAS API token and no more than three DNS nameservers."
+  no_log: true
+  when: truenas_system_config_enabled | bool
+
+- name: Build TrueNAS global network configuration
+  ansible.builtin.set_fact:
+    truenas_system_config_network_configuration:
+      nameserver1: "{{ truenas_system_config_dns_nameservers[0] | default('') }}"
+      nameserver2: "{{ truenas_system_config_dns_nameservers[1] | default('') }}"
+      nameserver3: "{{ truenas_system_config_dns_nameservers[2] | default('') }}"
+  when: truenas_system_config_enabled | bool
+
+- name: Configure TrueNAS global network settings through JSON-RPC
+  ansible.builtin.include_role:
+    name: truenas_jsonrpc_provision
+  vars:
+    truenas_jsonrpc_provision_api_url: "{{ truenas_system_config_api_url }}"
+    truenas_jsonrpc_provision_api_token: "{{ truenas_system_config_api_token }}"
+    truenas_jsonrpc_provision_api_validate_certs: "{{ truenas_system_config_api_validate_certs }}"
+    truenas_jsonrpc_provision_policy:
+      network_configuration: "{{ truenas_system_config_network_configuration }}"
+  no_log: true
+  when: truenas_system_config_enabled | bool

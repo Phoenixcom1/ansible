@@ -1,0 +1,18 @@
+---
+truenas_cloud_sync_enabled: false
+truenas_cloud_sync_api_url: "{{ truenas_api_url | default('https://truenas.' ~ customer_domain) }}"
+truenas_cloud_sync_api_token: "{{ truenas_api_token | default('', true) }}"
+truenas_cloud_sync_api_validate_certs: "{{ truenas_api_validate_certs | default(true) }}"
+
+# Each destination supplies a TrueNAS keychain credential. The credential
+# attributes are provider-specific; see the role README for WebDAV and SFTP.
+truenas_cloud_sync_destinations: []
+truenas_cloud_sync_jobs: []
+
+truenas_cloud_sync_default_encryption: true
+truenas_cloud_sync_default_filename_encryption: false
+truenas_cloud_sync_default_snapshot: true
+truenas_cloud_sync_default_direction: PUSH
+truenas_cloud_sync_default_transfer_mode: COPY
+truenas_cloud_sync_default_schedule:
+  { minute: "30", hour: "2", dom: "*", month: "*", dow: "*" }

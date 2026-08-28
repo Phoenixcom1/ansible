@@ -53,6 +53,31 @@ all:
             weekly: 8
             monthly: 24
           replication: true
+      truenas_system_config_enabled: true
+      # Temporary Cloud Sync SFTP test using the existing restic account.
+      # Replace the account and encryption values before production use.
+      truenas_cloud_sync_enabled: true
+      truenas_cloud_sync_destinations:
+        - name: restic-sftp-test
+          credential:
+            name: restic-sftp-test
+            provider:
+              type: SFTP
+              host: "restic.kerberos.bitsnbyt.es"
+              port: 22
+              user: "restic"
+              pass: "{{ truenas_restic_smb_password }}"
+              private_key: null
+      truenas_cloud_sync_jobs:
+        - name: photos-test
+          datasets:
+            - "/mnt/tank/photos"
+          destinations:
+            - restic-sftp-test
+          folder: "Truenas_Cloud_Sync/podman-vm-pve0"
+          encryption_password: "{{ truenas_dataset_encryption_passphrase }}"
+          # Temporary test configuration; use a separate vaulted salt in production.
+          encryption_salt: "{{ truenas_dataset_encryption_passphrase }}"
       restic_backup_enabled_services:
         - vaultwarden
         - homepage

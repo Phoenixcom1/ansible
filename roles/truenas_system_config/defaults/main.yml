@@ -1,0 +1,9 @@
+---
+truenas_system_config_enabled: false
+truenas_system_config_api_url: "{{ truenas_api_url | default('https://truenas.' ~ customer_domain) }}"
+truenas_system_config_api_token: "{{ truenas_api_token | default('', true) }}"
+truenas_system_config_api_validate_certs: "{{ truenas_api_validate_certs | default(true) }}"
+
+# TrueNAS accepts up to three DNS server addresses in its global network
+# configuration. Empty values leave the corresponding slot unchanged.
+truenas_system_config_dns_nameservers: "{{ (dns_nameservers_effective | default([]))[:3] }}"

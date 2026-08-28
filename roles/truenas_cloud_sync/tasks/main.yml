@@ -1,0 +1,70 @@
+---
+- name: Validate TrueNAS Cloud Sync configuration
+  ansible.builtin.assert:
+    that:
+      - truenas_cloud_sync_api_token | length > 0
+      - truenas_cloud_sync_destinations | length > 0
+      - truenas_cloud_sync_jobs | length > 0
+      - (truenas_cloud_sync_destinations | map(attribute='name') | list | unique | length) == (truenas_cloud_sync_destinations | length)
+      - (truenas_cloud_sync_jobs | map(attribute='name') | list | unique | length) == (truenas_cloud_sync_jobs | length)
+      - >-
+        (truenas_cloud_sync_jobs | map(attribute='datasets') | flatten | list | length) > 0
+      - >-
+        (truenas_cloud_sync_destinations | map(attribute='name') | list)
+        | intersect(truenas_cloud_sync_jobs | map(attribute='destinations') | flatten | list)
+        | length > 0
+    fail_msg: >-
+      Define a non-empty API token, unique destinations and jobs, and at least
+      one dataset and valid destination reference per Cloud Sync configuration.
+  no_log: true
+  when: truenas_cloud_sync_enabled | bool
+
+- name: Validate Cloud Sync job encryption and destination references
+  ansible.builtin.assert:
+    that:
+      - >-
+        (not (item.encryption | default(truenas_cloud_sync_default_encryption) | bool))
+        or (item.encryption_password | default('') | length > 0)
+      - >-
+        (not (item.encryption | default(truenas_cloud_sync_default_encryption) | bool))
+        or (item.encryption_salt | default('') | length > 0)
+      - >-
+        (item.destinations | difference(truenas_cloud_sync_destinations | map(attribute='name') | list) | length) == 0
+    fail_msg: >-
+      Every enabled Cloud Sync encryption job needs a vaulted password and
+      salt, and every job destination must be defined in
+      truenas_cloud_sync_destinations.
+  loop: "{{ truenas_cloud_sync_jobs }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true
+  when: truenas_cloud_sync_enabled | bool
+
+- name: Build TrueNAS Cloud Sync credentials
+  ansible.builtin.set_fact:
+    truenas_cloud_sync_credentials: "{{ truenas_cloud_sync_destinations | map(attribute='credential') | list }}"
+  no_log: true
+  when: truenas_cloud_sync_enabled | bool
+
+- name: Build Cloud Sync task matrix
+  ansible.builtin.include_tasks: build.yml
+  vars:
+    cloud_sync_job: "{{ cloud_sync_job_item }}"
+  loop: "{{ truenas_cloud_sync_jobs }}"
+  loop_control:
+    loop_var: cloud_sync_job_item
+    label: "{{ cloud_sync_job_item.name }}"
+  when: truenas_cloud_sync_enabled | bool
+
+- name: Configure TrueNAS Cloud Sync tasks
+  ansible.builtin.include_role:
+    name: truenas_jsonrpc_provision
+  vars:
+    truenas_jsonrpc_provision_api_url: "{{ truenas_cloud_sync_api_url }}"
+    truenas_jsonrpc_provision_api_token: "{{ truenas_cloud_sync_api_token }}"
+    truenas_jsonrpc_provision_api_validate_certs: "{{ truenas_cloud_sync_api_validate_certs }}"
+    truenas_jsonrpc_provision_policy:
+      cloud_credentials: "{{ truenas_cloud_sync_credentials }}"
+      cloud_sync: "{{ truenas_cloud_sync_policy_tasks }}"
+  no_log: true
+  when: truenas_cloud_sync_enabled | bool
