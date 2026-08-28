@@ -58,8 +58,8 @@ nextcloud_data_dir: "/srv/containers/nextcloud-data"
 TrueNAS encryption is applied only when a dataset is created; an existing
 dataset cannot be encrypted in place. To create a new passphrase-encrypted
 dataset, opt in on that mount and provide
-`truenas_nfs_dataset_encryption_passphrase` through the ignored vaulted
-inventory, or set `TRUENAS_NFS_DATASET_ENCRYPTION_PASSPHRASE` on the Ansible
+`truenas_dataset_encryption_passphrase` through the ignored vaulted
+inventory, or set `TRUENAS_DATASET_ENCRYPTION_PASSPHRASE` on the Ansible
 controller:
 
 ```yaml
@@ -98,7 +98,7 @@ all:
       nextcloud_db_password: !vault |
         $ANSIBLE_VAULT;1.2;AES256;lab
         ...
-      truenas_nfs_dataset_encryption_passphrase: !vault |
+      truenas_dataset_encryption_passphrase: !vault |
         $ANSIBLE_VAULT;1.2;AES256;lab
         ...
 ```

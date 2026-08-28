@@ -1,0 +1,34 @@
+---
+truenas_dataset_provision_api_url: "{{ truenas_api_url | default('https://truenas.' ~ customer_domain) }}"
+truenas_dataset_provision_api_token: "{{ truenas_api_token | default('', true) }}"
+truenas_dataset_provision_api_validate_certs: "{{ truenas_api_validate_certs | default(true) }}"
+
+truenas_dataset_provision_encryption_passphrase: "{{ truenas_dataset_encryption_passphrase }}"
+truenas_dataset_provision_encryption_algorithm: "{{ truenas_dataset_encryption_algorithm }}"
+truenas_dataset_provision_encryption_pbkdf2iters: "{{ truenas_dataset_encryption_pbkdf2iters }}"
+
+# Generic, app-independent SMB datasets. Each entry gets its own encrypted
+# ZFS dataset, TrueNAS group (for access control), SMB share, snapshot
+# retention policy, and optional replication - all independent of which
+# app(s) actually consume it. Add one entry per "users" list item for each
+# app/account that should have access, joined to the dataset's group;
+# nothing here couples the dataset's lifecycle to a specific app role.
+#
+# truenas_datasets:
+#   - name: photos
+#     dataset: tank/apps/photos
+#     export_path: /mnt/tank/apps/photos
+#     share_name: photos           # optional, defaults to "name"
+#     encrypted: true
+#     group: photos-access
+#     mode: "0770"                 # optional, defaults to "0770"
+#     users:
+#       - username: immich-photos
+#         password: "{{ vaulted_immich_photos_smb_password }}"
+#         full_name: "Immich external library account"
+#     snapshot_retention:          # omit to skip snapshot management
+#       daily: 14
+#       weekly: 8
+#       monthly: 24
+#     replication: true            # opt into truenas_replication_datasets
+truenas_datasets: []

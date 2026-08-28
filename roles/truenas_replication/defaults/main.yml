@@ -36,4 +36,5 @@ truenas_replication_datasets: >-
     (truenas_nfs_mounts | default([]) | selectattr('dataset', 'defined') | map(attribute='dataset') | list)
     + [truenas_immich_smb_dataset | default('tank/apps/immich-data')]
     + [truenas_smb_backup_dataset | default('tank/apps/podman-backups')]
+    + (truenas_datasets | default([]) | selectattr('replication', 'defined') | selectattr('replication') | map(attribute='dataset') | list)
   ) | unique | list }}

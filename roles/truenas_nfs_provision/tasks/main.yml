@@ -3,7 +3,7 @@
   assert:
     that:
       - truenas_api_token | length > 0
-      - truenas_nfs_dataset_encryption_passphrase | length > 0 or not (truenas_nfs_provision_shares | selectattr('encrypted', 'defined') | selectattr('encrypted') | list | length > 0)
+      - truenas_dataset_encryption_passphrase | length > 0 or not (truenas_nfs_provision_shares | selectattr('encrypted', 'defined') | selectattr('encrypted') | list | length > 0)
   no_log: true
   when: truenas_nfs_provision_shares | length > 0
 
@@ -40,9 +40,9 @@
       encryption: "{{ item.encrypted | default(false) | bool }}"
       encryption_options:
         generate_key: false
-        passphrase: "{{ truenas_nfs_dataset_encryption_passphrase }}"
-        algorithm: "{{ truenas_nfs_dataset_encryption_algorithm }}"
-        pbkdf2iters: "{{ truenas_nfs_dataset_encryption_pbkdf2iters | int }}"
+        passphrase: "{{ truenas_dataset_encryption_passphrase }}"
+        algorithm: "{{ truenas_dataset_encryption_algorithm }}"
+        pbkdf2iters: "{{ truenas_dataset_encryption_pbkdf2iters | int }}"
   loop: "{{ truenas_nfs_provision_shares }}"
   no_log: true
   when: truenas_nfs_provision_shares | length > 0

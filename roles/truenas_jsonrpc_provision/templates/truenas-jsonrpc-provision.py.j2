@@ -47,9 +47,20 @@ def ensure_dataset(client, dataset, changes):
         ensure_dataset(client, {"name": child_name, "share_type": dataset.get("share_type", "GENERIC")}, changes)
 
 
-def ensure_user(client, user, changes):
+def ensure_group(client, group, changes):
+    found = client.query("group.query", "group", group["name"])
+    if found:
+        return found[0]["id"]
+    group_id = client.call("group.create", [{"name": group["name"]}])
+    changes.append(f"created group {group['name']}")
+    return group_id
+
+
+def ensure_user(client, user, group_ids, changes):
     found = client.query("user.query", "username", user["username"])
-    payload = {key: value for key, value in user.items() if key != "username"}
+    payload = {key: value for key, value in user.items() if key not in ("username", "group_names")}
+    if "group_names" in user:
+        payload["groups"] = [group_ids[name] for name in user["group_names"]]
     if not found:
         payload.setdefault("group_create", True)
         client.call("user.create", [dict(payload, username=user["username"])])
@@ -60,6 +71,12 @@ def ensure_user(client, user, changes):
     for key in ("full_name", "shell", "home", "sshpubkey", "smb"):
         if key in payload and current.get(key) != payload[key]:
             updates[key] = payload[key]
+    if "groups" in payload:
+        current_groups = set(current.get("groups", []))
+        requested_groups = set(payload["groups"])
+        merged_groups = sorted(current_groups | requested_groups)
+        if current_groups != set(merged_groups):
+            updates["groups"] = merged_groups
     if updates:
         client.call("user.update", [current["id"], updates])
         changes.append(f"updated user {user['username']}")
@@ -155,8 +172,11 @@ def main():
         changes = []
         for dataset in policy.get("datasets", []):
             ensure_dataset(client, dataset, changes)
+        group_ids = {}
+        for group in policy.get("groups", []):
+            group_ids[group["name"]] = ensure_group(client, group, changes)
         for user in policy.get("users", []):
-            ensure_user(client, user, changes)
+            ensure_user(client, user, group_ids, changes)
         key_ids, public_keys = ensure_keychain_credentials(client, policy.get("keychain_credentials", []), changes)
         public_key_output_file = policy.get("public_key_output_file")
         if public_key_output_file:

@@ -37,6 +37,22 @@ all:
           export_path: "/mnt/tank/apps/nextcloud-data"
           path: "/srv/containers/nextcloud-data"
           encrypted: true
+
+      truenas_datasets:
+        - name: photos
+          dataset: "tank/photos"
+          export_path: "/mnt/tank/photos"
+          encrypted: true
+          group: photos-access
+          users:
+            - username: "{{ truenas_immich_smb_username }}"
+              password: "{{ truenas_immich_smb_password }}"
+              full_name: "Immich account"
+          snapshot_retention:
+            daily: 14
+            weekly: 8
+            monthly: 24
+          replication: true
       restic_backup_enabled_services:
         - vaultwarden
         - homepage

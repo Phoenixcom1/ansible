@@ -28,6 +28,7 @@
     #- deploy_homepage_container
     #- deploy_jellyfin_container
     #- truenas_immich_smb_provision
+    - truenas_dataset_provision
     #- deploy_immich_container
     #- deploy_vaultwarden_container
     #- deploy_unifi_controller_container
@@ -35,9 +36,9 @@
     #- deploy_frigate_container
     #- role: truenas_smb_provision
     #  when: "'vaultwarden' in restic_backup_enabled_services"
-    #- truenas_replication
-    - role: restic-backup
-      when: restic_backup_enabled_services | default([]) | length > 0
+    - truenas_replication
+    #- role: restic-backup
+    #  when: restic_backup_enabled_services | default([]) | length > 0
     #- immich-snapshot-backup
     #- role: restic-restore
     #  when: restic_restore_enabled | default(false) | bool

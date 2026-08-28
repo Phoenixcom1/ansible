@@ -11,6 +11,20 @@ customer_domain: "kerberos.bitsnbyt.es"
 # Verify the TrueNAS API certificate for all storage provisioners.
 truenas_api_validate_certs: true
 
+# Shared encryption defaults for TrueNAS datasets created by any storage
+# provisioner role. The passphrase is only needed when an encrypted dataset is
+# first created; keep the real value in vaulted inventory or provide it through
+# the environment.
+truenas_dataset_encryption_passphrase: "{{ lookup('env', 'TRUENAS_DATASET_ENCRYPTION_PASSPHRASE') | default('', true) }}"
+truenas_dataset_encryption_algorithm: "AES-256-GCM"
+truenas_dataset_encryption_pbkdf2iters: 350000
+
+# Shared TrueNAS SMB account used by Immich-owned media datasets. Keep the
+# password in vaulted inventory; the username is referenced by storage and
+# container roles.
+truenas_immich_smb_username: "immich-media"
+truenas_immich_smb_password: ""
+
 # SSL certificate paths (used by nginx reverse proxy for all services)
 # Wildcard certificate locations deployed by your firewall
 ssl_cert: "/etc/ssl/wildcard/kerberos.fassbender.contact/fullchain.pem"

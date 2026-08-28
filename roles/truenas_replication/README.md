@@ -20,7 +20,7 @@ The source TrueNAS is the SSH client and pushes snapshots to the destination Tru
 6. Ansible configures an SSH credential on the source TrueNAS that references the source keypair, destination user, destination address, and destination host key.
 7. Ansible creates or updates the source replication task. The source TrueNAS then connects to the destination over SSH and pushes the replication stream.
 
-The task selects snapshots whose names match `truenas_replication_snapshot_name_regex` and runs according to `truenas_replication_schedule`. The defaults match snapshots created by the `truenas_snapshot_retention` role (`ansible-*`) and run replication daily at 03:00, after the default daily snapshot time of 00:10.
+The task selects snapshots whose names match `truenas_replication_snapshot_name_regex` and runs according to `truenas_replication_schedule` in the source TrueNAS system timezone. The defaults match snapshots created by the `truenas_snapshot_retention` role (`ansible-*`) and run replication daily at 03:00, after the default daily snapshot time of 00:10.
 
 The destination user is intended only for replication. It has no sudo access and is not enabled for SMB. The role configures filesystem permissions on the destination dataset for this user. TrueNAS requires a non-empty password when creating a user. Set `truenas_replication_remote_password` in vaulted inventory if the account should have a known password; otherwise the role generates a random bootstrap password. The generated password is not reported or persisted by Ansible. SSH keys are used for replication, and the role does not change the password of an existing user, so an administrator can change it directly on TrueNAS without Ansible resetting it.
 
@@ -28,16 +28,16 @@ The replication task defaults to `readonly: IGNORE`. This is required for the de
 
 ### IMPORTANT: manual ZFS delegation required
 
-Before running the replication task, manually delegate the minimum ZFS permissions needed for PUSH replication on the destination TrueNAS:
+Before running the replication task, manually delegate the minimum ZFS permissions needed for PUSH replication on the destination TrueNAS. `destroy` is required because this role configures `retention_policy: SOURCE`, so TrueNAS may delete destination snapshots that no longer exist on the source:
 
 ```sh
-zfs allow <replication-user> mount,create,receive <destination-dataset>
+zfs allow <replication-user> mount,create,receive,destroy <destination-dataset>
 ```
 
 For the configured lab values, run this on the destination TrueNAS as an administrator:
 
 ```sh
-zfs allow truenas-repl-Enno mount,create,receive tank/Truenas_Backup_Enno
+zfs allow truenas-repl-Enno mount,create,receive,destroy tank/Truenas_Backup_Enno
 ```
 
 The role intentionally does not automate this command. TrueNAS JSON-RPC does not expose `zfs allow` as a dataset-permission operation, and the replication account must remain non-sudo. Apply delegation again if the destination dataset is recreated or replaced.

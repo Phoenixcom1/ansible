@@ -1,0 +1,131 @@
+---
+- name: Validate generic TrueNAS dataset configuration
+  assert:
+    that:
+      - truenas_dataset_provision_api_token | length > 0
+      - >-
+        truenas_dataset_provision_encryption_passphrase | length > 0
+        or not (truenas_datasets | selectattr('encrypted', 'defined') | selectattr('encrypted') | list | length > 0)
+      - (truenas_datasets | subelements('users', skip_missing=True) | selectattr('1.password', 'defined') | selectattr('1.password') | list | length) ==
+        (truenas_datasets | subelements('users', skip_missing=True) | list | length)
+    fail_msg: >-
+      Every entry in truenas_datasets needs a non-empty user password, and
+      truenas_dataset_encryption_passphrase must be set for any encrypted
+      dataset.
+  no_log: true
+  when: truenas_datasets | length > 0
+
+- name: Initialize the generic TrueNAS dataset JSON-RPC policy
+  set_fact:
+    truenas_dataset_provision_jsonrpc_datasets: []
+    truenas_dataset_provision_jsonrpc_groups: []
+    truenas_dataset_provision_jsonrpc_users: []
+    truenas_dataset_provision_jsonrpc_permissions: []
+    truenas_dataset_provision_jsonrpc_shares: []
+    truenas_dataset_provision_snapshot_policies: []
+  when: truenas_datasets | length > 0
+
+- name: Add generic TrueNAS datasets to the JSON-RPC policy
+  set_fact:
+    truenas_dataset_provision_jsonrpc_datasets: "{{ truenas_dataset_provision_jsonrpc_datasets + [dataset_policy] }}"
+  vars:
+    dataset_policy:
+      name: "{{ item.dataset }}"
+      share_type: SMB
+      encryption: "{{ item.encrypted | default(false) | bool }}"
+      encryption_options:
+        generate_key: false
+        passphrase: "{{ truenas_dataset_provision_encryption_passphrase }}"
+        algorithm: "{{ truenas_dataset_provision_encryption_algorithm }}"
+        pbkdf2iters: "{{ truenas_dataset_provision_encryption_pbkdf2iters | int }}"
+  loop: "{{ truenas_datasets }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true
+  when: truenas_datasets | length > 0
+
+- name: Add generic TrueNAS dataset access groups to the JSON-RPC policy
+  set_fact:
+    truenas_dataset_provision_jsonrpc_groups: "{{ truenas_dataset_provision_jsonrpc_groups + [{'name': item.group}] }}"
+  loop: "{{ truenas_datasets }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: truenas_datasets | length > 0
+
+- name: Add generic TrueNAS dataset users to the JSON-RPC policy
+  set_fact:
+    truenas_dataset_provision_jsonrpc_users: "{{ truenas_dataset_provision_jsonrpc_users + [user_policy] }}"
+  vars:
+    user_policy: "{{ item.1 | combine({'group_names': [item.0.group], 'smb': true}) }}"
+  loop: "{{ truenas_datasets | subelements('users', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.0.name }}/{{ item.1.username }}"
+  no_log: true
+  when: truenas_datasets | length > 0
+
+- name: Add generic TrueNAS dataset permissions to the JSON-RPC policy
+  set_fact:
+    truenas_dataset_provision_jsonrpc_permissions: "{{ truenas_dataset_provision_jsonrpc_permissions + [permission_policy] }}"
+  vars:
+    permission_policy:
+      path: "{{ item.export_path }}"
+      user: root
+      group: "{{ item.group }}"
+      mode: "{{ item.mode | default('0770') }}"
+      options:
+        recursive: true
+        traverse: true
+        stripacl: true
+  loop: "{{ truenas_datasets }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: truenas_datasets | length > 0
+
+- name: Add generic TrueNAS dataset SMB shares to the JSON-RPC policy
+  set_fact:
+    truenas_dataset_provision_jsonrpc_shares: "{{ truenas_dataset_provision_jsonrpc_shares + [share_policy] }}"
+  vars:
+    share_policy:
+      type: smb
+      path: "{{ item.export_path }}"
+      name: "{{ item.share_name | default(item.name) }}"
+      comment: "Managed by Ansible: {{ item.name }}"
+  loop: "{{ truenas_datasets }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: truenas_datasets | length > 0
+
+- name: Configure generic TrueNAS dataset resources through JSON-RPC
+  include_role:
+    name: truenas_jsonrpc_provision
+  vars:
+    truenas_jsonrpc_provision_api_url: "{{ truenas_dataset_provision_api_url }}"
+    truenas_jsonrpc_provision_api_token: "{{ truenas_dataset_provision_api_token }}"
+    truenas_jsonrpc_provision_api_validate_certs: "{{ truenas_dataset_provision_api_validate_certs }}"
+    truenas_jsonrpc_provision_policy:
+      datasets: "{{ truenas_dataset_provision_jsonrpc_datasets }}"
+      groups: "{{ truenas_dataset_provision_jsonrpc_groups }}"
+      users: "{{ truenas_dataset_provision_jsonrpc_users }}"
+      permissions: "{{ truenas_dataset_provision_jsonrpc_permissions }}"
+      shares: "{{ truenas_dataset_provision_jsonrpc_shares }}"
+      services: [cifs]
+  no_log: true
+  when: truenas_datasets | length > 0
+
+- name: Build snapshot retention policies for generic TrueNAS datasets
+  set_fact:
+    truenas_dataset_provision_snapshot_policies: "{{ truenas_dataset_provision_snapshot_policies + [{'name': item.name, 'dataset': item.dataset, 'retention': item.snapshot_retention}] }}"
+  loop: "{{ truenas_datasets | selectattr('snapshot_retention', 'defined') | list }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: truenas_datasets | length > 0
+
+- name: Configure TrueNAS periodic snapshots for generic datasets
+  include_role:
+    name: truenas_snapshot_retention
+  vars:
+    truenas_snapshot_retention_api_url: "{{ truenas_dataset_provision_api_url }}"
+    truenas_snapshot_retention_api_token: "{{ truenas_dataset_provision_api_token }}"
+    truenas_snapshot_retention_api_validate_certs: "{{ truenas_dataset_provision_api_validate_certs }}"
+    truenas_snapshot_retention_policies: "{{ truenas_dataset_provision_snapshot_policies }}"
+  when: truenas_dataset_provision_snapshot_policies | default([]) | length > 0
