@@ -68,7 +68,7 @@ def ensure_user(client, user, group_ids, changes):
         return
     current = found[0]
     updates = {}
-    for key in ("full_name", "shell", "home", "sshpubkey", "smb"):
+    for key in ("full_name", "shell", "home", "sshpubkey", "smb", "password"):
         if key in payload and current.get(key) != payload[key]:
             updates[key] = payload[key]
     if "groups" in payload:

@@ -31,4 +31,7 @@ truenas_dataset_provision_encryption_pbkdf2iters: "{{ truenas_dataset_encryption
 #       weekly: 8
 #       monthly: 24
 #     replication: true            # opt into truenas_replication_datasets
+#
+# For client restrictions, enforce the allowed source addresses at TrueNAS or
+# the network firewall; SMB share provisioning does not create per-client ACLs.
 truenas_datasets: []

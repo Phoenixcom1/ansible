@@ -28,7 +28,8 @@
     #- deploy_homepage_container
     #- deploy_jellyfin_container
     #- truenas_immich_smb_provision
-    #- truenas_dataset_provision
+    - role: truenas_dataset_provision
+      when: truenas_datasets | default([]) | length > 0
     - role: truenas_rsync_destination
       when: truenas_rsync_destinations | default([]) | length > 0
     #- truenas_system_config

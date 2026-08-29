@@ -53,6 +53,18 @@ all:
             weekly: 8
             monthly: 24
           replication: true
+        - name: proxmox-vm-backups
+          dataset: "tank/backups/proxmox-vm-backups"
+          export_path: "/mnt/tank/backups/proxmox-vm-backups"
+          share_name: "proxmox-vm-backups"
+          encrypted: true
+          group: proxmox-vm-backups
+          users:
+            - username: "proxmox-vm-backup"
+              password: "{{ truenas_proxmox_vm_backup_account_password }}"
+              full_name: "Proxmox VM backup account"
+          # Restrict SMB access to the Proxmox hosts at the TrueNAS or network
+          # firewall: 192.168.1.20 and 192.168.1.11.
       truenas_system_config_enabled: true
       # Temporary Cloud Sync SFTP test using the existing restic account.
       # Replace the account and encryption values before production use.
