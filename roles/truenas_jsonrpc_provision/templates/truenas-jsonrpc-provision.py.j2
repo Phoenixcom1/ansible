@@ -80,6 +80,9 @@ def ensure_user(client, user, group_ids, changes):
     if updates:
         client.call("user.update", [current["id"], updates])
         changes.append(f"updated user {user['username']}")
+    if "ssh_password_enabled" in payload and current.get("ssh_password_enabled") != payload["ssh_password_enabled"]:
+        client.call("user.update", [current["id"], {"ssh_password_enabled": payload["ssh_password_enabled"]}])
+        changes.append(f"updated SSH password authentication for {user['username']}")
 
 
 def ensure_keychain_credentials(client, credentials, changes):
@@ -137,6 +140,19 @@ def ensure_cloud_credentials(client, credentials, changes):
             credential_id = credential_id["id"]
         credential_ids[credential["name"]] = credential_id
     return credential_ids
+
+
+def ensure_ssh(client, settings, changes):
+    current = client.call("ssh.config", [])
+    updates = {}
+    for key, value in settings.items():
+        if key == "password_login_groups":
+            value = sorted(set(current.get(key, [])) | set(value))
+        if current.get(key) != value:
+            updates[key] = value
+    if updates:
+        client.call("ssh.update", [updates])
+        changes.append("updated SSH configuration")
 
 
 def ensure_replication(client, replication, key_ids, changes):
@@ -223,12 +239,21 @@ def main():
         group_ids = {}
         for group in policy.get("groups", []):
             group_ids[group["name"]] = ensure_group(client, group, changes)
+        for directory in policy.get("directories", []):
+            try:
+                client.call("filesystem.mkdir", [{"path": directory["path"]}])
+                changes.append(f"created directory {directory['path']}")
+            except RuntimeError as error:
+                if "EEXIST" not in str(error):
+                    raise
         for user in policy.get("users", []):
             ensure_user(client, user, group_ids, changes)
         key_ids, public_keys = ensure_keychain_credentials(client, policy.get("keychain_credentials", []), changes)
         cloud_credential_ids = ensure_cloud_credentials(client, policy.get("cloud_credentials", []), changes)
         if policy.get("network_configuration"):
             ensure_network_configuration(client, policy["network_configuration"], changes)
+        if policy.get("ssh"):
+            ensure_ssh(client, policy["ssh"], changes)
         public_key_output_file = policy.get("public_key_output_file")
         if public_key_output_file:
             public_key_name = policy["public_key_name"]
@@ -249,16 +274,28 @@ def main():
             changes.append(f"set permissions {permission['path']}")
         for share in policy.get("shares", []):
             method = f"sharing.{share['type']}.query"
-            key = "name" if share["type"] == "smb" else "path"
+            key = "name" if share["type"] in ("smb", "rsyncmod") else "path"
             value = share[key]
             if not client.query(method, key, value):
-                payload = {"path": share["path"], "comment": share["comment"], "enabled": True}
+                payload = dict(share)
+                payload.pop("type", None)
+                payload.setdefault("enabled", True)
                 if share["type"] == "smb":
                     payload["name"] = share["name"]
-                else:
+                elif share["type"] == "nfs":
                     payload["hosts"] = share["hosts"]
                 client.call(f"sharing.{share['type']}.create", [payload])
                 changes.append(f"created {share['type']} share {value}")
+            elif share["type"] == "rsyncmod":
+                current = client.query(method, key, value)[0]
+                payload = dict(share)
+                payload.pop("type", None)
+                payload.setdefault("enabled", True)
+                comparable = {key: value for key, value in payload.items() if key not in ("name",)}
+                current_comparable = {key: current.get(key) for key in comparable}
+                if current_comparable != comparable:
+                    client.call("sharing.rsyncmod.update", [current["id"], payload])
+                    changes.append(f"updated {share['type']} share {value}")
         for service in policy.get("services", []):
             configured = client.query("service.query", "service", service)[0]
             if not configured["enable"]:

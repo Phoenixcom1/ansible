@@ -1,0 +1,152 @@
+---
+- name: Validate TrueNAS rsync destination configuration
+  assert:
+    that:
+      - truenas_rsync_destination_api_token | length > 0
+      - truenas_rsync_destinations | length > 0
+      - truenas_rsync_destination_dataset_parents | unique | length == truenas_rsync_destination_dataset_parents | length
+      - truenas_rsync_destination_dataset_parents | select('match', '^[^/]+(?:/.+)?$') | list | length == truenas_rsync_destination_dataset_parents | length
+      - (truenas_rsync_destinations | map(attribute='dataset') | list | unique | length) == truenas_rsync_destinations | length
+      - (truenas_rsync_destinations | map(attribute='export_path') | list | unique | length) == truenas_rsync_destinations | length
+      - (truenas_rsync_destinations | map(attribute='username') | list | unique | length) == truenas_rsync_destinations | length
+    fail_msg: >-
+      Configure the TrueNAS API token and at least one rsync destination.
+  no_log: true
+  when: truenas_rsync_destination_enabled | bool
+
+- name: Validate each TrueNAS rsync destination
+  assert:
+    that:
+      - item.name is defined and item.name is match('^[A-Za-z0-9._-]+$')
+      - item.dataset is defined and item.dataset is match('^[^/]+/.+')
+      - item.export_path is defined and item.export_path is match('^/mnt/[^/].+')
+      - item.username is defined and item.username is match('^[A-Za-z0-9._-]+$')
+      - item.password is defined and item.password | length > 0
+      - item.allowed_hosts is defined and item.allowed_hosts | length > 0
+    fail_msg: >-
+      Each rsync destination needs a name, dataset, /mnt export path, username,
+      non-empty password, and at least one allowed client host.
+  loop: "{{ truenas_rsync_destinations }}"
+  loop_control:
+    label: "{{ item.name | default('unnamed') }}"
+  no_log: true
+  when: truenas_rsync_destination_enabled | bool
+
+- name: Initialize the TrueNAS rsync destination JSON-RPC policy
+  set_fact:
+    truenas_rsync_destination_jsonrpc_datasets: []
+    truenas_rsync_destination_jsonrpc_groups: []
+    truenas_rsync_destination_jsonrpc_users: []
+    truenas_rsync_destination_jsonrpc_permissions: []
+    truenas_rsync_destination_jsonrpc_shares: []
+    truenas_rsync_destination_jsonrpc_ssh_groups: []
+    truenas_rsync_destination_snapshot_policies: []
+  when: truenas_rsync_destination_enabled | bool
+
+- name: Add rsync destination parent datasets to the JSON-RPC policy
+  set_fact:
+    truenas_rsync_destination_jsonrpc_datasets: >-
+      {{ truenas_rsync_destination_jsonrpc_datasets + [{'name': item, 'share_type': 'GENERIC'}] }}
+  loop: "{{ truenas_rsync_destination_dataset_parents }}"
+  when: truenas_rsync_destination_enabled | bool
+
+- name: Add rsync destination datasets to the JSON-RPC policy
+  set_fact:
+    truenas_rsync_destination_jsonrpc_datasets: >-
+      {{ truenas_rsync_destination_jsonrpc_datasets + [{'name': item.dataset, 'share_type': 'GENERIC'}] }}
+  loop: "{{ truenas_rsync_destinations }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true
+  when: truenas_rsync_destination_enabled | bool
+
+- name: Add rsync destination groups to the JSON-RPC policy
+  set_fact:
+    truenas_rsync_destination_jsonrpc_groups: >-
+      {{ truenas_rsync_destination_jsonrpc_groups + [{'name': item.group | default(item.username)}] }}
+    truenas_rsync_destination_jsonrpc_ssh_groups: >-
+      {{ truenas_rsync_destination_jsonrpc_ssh_groups + [item.group | default(item.username)] }}
+  loop: "{{ truenas_rsync_destinations }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: truenas_rsync_destination_enabled | bool
+
+- name: Add rsync destination users to the JSON-RPC policy
+  set_fact:
+    truenas_rsync_destination_jsonrpc_users: >-
+      {{ truenas_rsync_destination_jsonrpc_users + [user_policy] }}
+  vars:
+    user_policy:
+      username: "{{ item.username }}"
+      full_name: "{{ item.full_name | default(item.name ~ ' rsync backup account') }}"
+      password: "{{ item.password }}"
+      group_names:
+        - "{{ item.group | default(item.username) }}"
+      shell: "{{ item.shell | default('/usr/bin/bash') }}"
+      home: "{{ item.home | default(item.export_path) }}"
+      smb: false
+      ssh_password_enabled: true
+  loop: "{{ truenas_rsync_destinations }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true
+  when: truenas_rsync_destination_enabled | bool
+
+- name: Add rsync destination permissions to the JSON-RPC policy
+  set_fact:
+    truenas_rsync_destination_jsonrpc_permissions: >-
+      {{ truenas_rsync_destination_jsonrpc_permissions + [permission_policy] }}
+  vars:
+    permission_policy:
+      path: "{{ item.export_path }}"
+      user: "{{ item.username }}"
+      group: "{{ item.group | default(item.username) }}"
+      mode: "{{ item.mode | default('0700') }}"
+      options:
+        recursive: true
+        traverse: true
+        stripacl: true
+  loop: "{{ truenas_rsync_destinations }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: truenas_rsync_destination_enabled | bool
+
+- name: Add rsync destination snapshot policies
+  set_fact:
+    truenas_rsync_destination_snapshot_policies: >-
+      {{ truenas_rsync_destination_snapshot_policies + [{'name': item.name, 'dataset': item.dataset, 'retention': item.snapshot_retention}] }}
+  loop: "{{ truenas_rsync_destinations | selectattr('snapshot_retention', 'defined') | list }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: truenas_rsync_destination_enabled | bool
+
+- name: Configure rsync destination datasets and SSH accounts through JSON-RPC
+  include_role:
+    name: truenas_jsonrpc_provision
+  vars:
+    truenas_jsonrpc_provision_api_url: "{{ truenas_rsync_destination_api_url }}"
+    truenas_jsonrpc_provision_api_token: "{{ truenas_rsync_destination_api_token }}"
+    truenas_jsonrpc_provision_api_validate_certs: "{{ truenas_rsync_destination_api_validate_certs }}"
+    truenas_jsonrpc_provision_policy:
+      datasets: "{{ truenas_rsync_destination_jsonrpc_datasets }}"
+      groups: "{{ truenas_rsync_destination_jsonrpc_groups }}"
+      users: "{{ truenas_rsync_destination_jsonrpc_users }}"
+      permissions: "{{ truenas_rsync_destination_jsonrpc_permissions }}"
+      shares: []
+      ssh:
+        password_login_groups: "{{ truenas_rsync_destination_jsonrpc_ssh_groups }}"
+      services: [ssh]
+  no_log: true
+  when: truenas_rsync_destination_enabled | bool
+
+- name: Configure rsync destination snapshot retention
+  include_role:
+    name: truenas_snapshot_retention
+  vars:
+    truenas_snapshot_retention_api_url: "{{ truenas_rsync_destination_api_url }}"
+    truenas_snapshot_retention_api_token: "{{ truenas_rsync_destination_api_token }}"
+    truenas_snapshot_retention_api_validate_certs: "{{ truenas_rsync_destination_api_validate_certs }}"
+    truenas_snapshot_retention_policies: "{{ truenas_rsync_destination_snapshot_policies }}"
+  when:
+    - truenas_rsync_destination_enabled | bool
+    - truenas_rsync_destination_snapshot_policies | length > 0

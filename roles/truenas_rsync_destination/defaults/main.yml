@@ -1,0 +1,10 @@
+---
+truenas_rsync_destination_enabled: true
+truenas_rsync_destination_api_url: "{{ truenas_api_url | default('https://truenas.' ~ customer_domain) }}"
+truenas_rsync_destination_api_token: "{{ truenas_api_token | default('', true) }}"
+truenas_rsync_destination_api_validate_certs: "{{ truenas_api_validate_certs | default(true) }}"
+
+# Each entry creates one independent dataset and account for rsync remote-shell
+# mode. Passwords should be vaulted or supplied by an ignored inventory.
+truenas_rsync_destination_dataset_parents: []
+truenas_rsync_destinations: []

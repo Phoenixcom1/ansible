@@ -29,8 +29,10 @@
     #- deploy_jellyfin_container
     #- truenas_immich_smb_provision
     #- truenas_dataset_provision
-    - truenas_system_config
-    - truenas_cloud_sync
+    - role: truenas_rsync_destination
+      when: truenas_rsync_destinations | default([]) | length > 0
+    #- truenas_system_config
+    #- truenas_cloud_sync
     #- deploy_immich_container
     #- deploy_vaultwarden_container
     #- deploy_unifi_controller_container
