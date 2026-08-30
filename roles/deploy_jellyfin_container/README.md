@@ -50,13 +50,13 @@ jellyfin_network_mount_type: "cifs" # or "nfs"
 jellyfin_network_mount_options: "vers=3.1.1,_netdev,credentials=/root/.smbcredentials,defaults,uid=1031,gid=100,rw"
 
 # Application
-jellyfin_domain: "jellyfin.kerberos.fassbender.contact"
+jellyfin_domain: "jellyfin.{{ customer_domain }}"
 jellyfin_port: 8096
 jellyfin_discovery_port: 7359
 
 # Podman
 podman_user: "podman"
-podman_network: "podman_bridge"
+podman_network: "podman"
 ```
 
 ## Network Mount Setup
@@ -219,7 +219,7 @@ systemctl --user start podman-auto-update.service
 ### Runtime Configuration
 
 - **Image**: `docker.io/jellyfin/jellyfin:latest`
-- **Network**: `podman_bridge` (default)
+- **Network**: `podman` (Podman's built-in rootless network)
 - **Ports**:
   - `127.0.0.1:8096:8096/tcp` - Web interface (proxied by nginx)
   - `7359:7359/udp` - Service discovery

@@ -17,18 +17,16 @@
 
 # Network mount setup (NFS or SMB)
 - name: Install NFS utilities if using NFS mount
-  apt:
-    name: nfs-common
+  package:
+    name: "{{ 'nfs-common' if (host_is_debian | default(ansible_facts['os_family'] == 'Debian')) else 'nfs-utils' }}"
     state: present
-    update_cache: yes
   become: true
   when: jellyfin_enable_network_mount and jellyfin_network_mount_type == "nfs"
 
 - name: Install CIFS utilities if using SMB mount
-  apt:
+  package:
     name: cifs-utils
     state: present
-    update_cache: yes
   become: true
   when: jellyfin_enable_network_mount and jellyfin_network_mount_type == "cifs"
 

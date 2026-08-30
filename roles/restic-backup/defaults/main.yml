@@ -101,10 +101,10 @@ restic_backup_services:
       - "*/icon_cache/*" # Website icons - can be re-downloaded
 
   jellyfin:
-    # Strategy: Stop container before backup (SQLite database)
+    # Strategy: Stop the rootless Quadlet service before backup (SQLite database)
     stop_before_backup: true
-    compose_file: "{{ podman_service_dir }}/jellyfin/compose_jellyfin.yml"
-    project_name: jellyfin
+    systemd_user_unit: jellyfin.service
+    systemd_user: "{{ podman_username }}"
     paths:
       - "{{ podman_service_dir }}/jellyfin/config"
     excludes:
