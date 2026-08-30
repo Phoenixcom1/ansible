@@ -25,7 +25,7 @@ Frigate is an open-source NVR with real-time AI object detection. This role depl
 
 ## Prerequisites
 
-- Ubuntu 24.04
+- Fedora or Ubuntu with a supported Podman installation
 - Podman user configured (via `podman-user` role)
 - Intel GPU with Quick Sync support
 - Camera with RTSP stream
@@ -408,7 +408,6 @@ Open `https://frigate.example.com` in your browser.
    ```
 
 2. Common RTSP paths by manufacturer:
-
    - Generic: `/live0`, `/stream1`, `/h264`
    - Hikvision: `/Streaming/Channels/101`
    - Dahua: `/cam/realmonitor?channel=1&subtype=0`

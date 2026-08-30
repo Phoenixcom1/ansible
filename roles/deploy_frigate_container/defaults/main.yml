@@ -20,7 +20,7 @@ frigate_config_dir: "{{ podman_service_dir }}/{{ frigate_project_name }}/config"
 frigate_media_dir: "{{ podman_service_dir }}/{{ frigate_project_name }}/media"
 
 # Frigate application settings
-frigate_domain: "frigate.kerberos.fassbender.contact"
+frigate_domain: "frigate.{{ customer_domain }}"
 frigate_port: 8971
 frigate_internal_port: 5000 # Internal HTTP API port (not the HTTPS nginx port 8971)
 frigate_rtsp_port: 8554
