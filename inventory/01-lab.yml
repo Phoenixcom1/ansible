@@ -94,6 +94,7 @@ all:
         - vaultwarden
         - homepage
         - immich
+        - jellyfin
       restic_service_overrides:
         immich:
           destinations:
