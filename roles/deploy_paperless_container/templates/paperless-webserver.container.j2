@@ -14,6 +14,9 @@ After=network-online.target {{ paperless_network }}-network.service paperless-re
 {% if paperless_enable_network_mount %}
 RequiresMountsFor={{ paperless_consume_dir }}
 {% endif %}
+{% if paperless_enable_media_mount %}
+RequiresMountsFor={{ paperless_media_dir }}
+{% endif %}
 
 [Container]
 Image=ghcr.io/paperless-ngx/paperless-ngx:latest
@@ -40,7 +43,7 @@ Volume={{ paperless_custom_init_dir }}:/custom-cont-init.d:ro,Z
 EnvironmentFile={{ paperless_env_file }}
 
 # Additional environment variables (container-specific)
-Environment=PAPERLESS_URL=https://{{ paperless_domain }}
+Environment=PAPERLESS_URL={{ paperless_client_url }}
 Environment=PAPERLESS_REDIS={{ paperless_redis_url }}
 Environment=PAPERLESS_TIKA_ENABLED={{ paperless_tika_enabled | int }}
 Environment=PAPERLESS_TIKA_GOTENBERG_ENDPOINT={{ paperless_tika_gotenberg_endpoint }}

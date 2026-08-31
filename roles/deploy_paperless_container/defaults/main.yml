@@ -22,6 +22,16 @@ paperless_scripts_dir: "{{ paperless_repo_path }}/scripts"
 paperless_custom_init_dir: "{{ paperless_repo_path }}/custom-cont-init.d"
 paperless_redis_dir: "{{ paperless_repo_path }}/redisdata"
 
+# Optional dedicated filesystem for large document media. Keep data (SQLite),
+# Redis, and configuration on the VM's local SSD.
+paperless_enable_media_mount: false
+paperless_media_mount_source: ""
+paperless_media_mount_type: "cifs"
+paperless_media_mount_options: "vers=3.1.1,_netdev,credentials={{ paperless_media_smbcredentials_file }},uid={{ paperless_host_uid }},gid={{ paperless_host_gid }},file_mode=0664,dir_mode=0775,rw"
+paperless_media_smbcredentials_file: "/root/.paperless_media_smbcreds"
+paperless_media_smb_username: "paperless-media"
+paperless_media_smb_password: ""
+
 # Network mount configuration for consume directory
 paperless_enable_network_mount: true
 paperless_network_mount_source: "//datenbunker.local/Paperless/Consume"
@@ -37,7 +47,8 @@ paperless_network: paperless_net
 paperless_network_driver: bridge
 
 # Paperless application settings
-paperless_domain: "paperless.kerberos.fassbender.contact"
+paperless_domain: "paperless.{{ customer_domain }}"
+paperless_client_url: "https://{{ paperless_domain }}"
 paperless_port: 8810
 paperless_internal_port: 8000
 

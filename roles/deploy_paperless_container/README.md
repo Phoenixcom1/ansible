@@ -73,7 +73,7 @@ Systemd automatically generates service units:
 ### Default Settings (defaults/main.yml)
 
 ```yaml
-paperless_domain: "paperless.kerberos.fassbender.contact"
+paperless_domain: "paperless.{{ customer_domain }}"
 paperless_port: 8810
 paperless_internal_port: 8000
 paperless_data_dir: "/opt/podman/paperless/data"
@@ -82,6 +82,25 @@ paperless_export_dir: "/opt/podman/paperless/export"
 paperless_consume_dir: "/opt/podman/paperless/consume"
 paperless_network: paperless_net
 ```
+
+### Dedicated SMB Media Storage
+
+The large document media tree can be placed on a dedicated TrueNAS SMB share, while
+the SQLite database, search index, Redis data, and configuration stay on the
+VM's local SSD. SQLite file locking is therefore entirely local.
+
+```yaml
+paperless_enable_media_mount: true
+paperless_media_mount_source: "//truenas.example/paperless-media"
+paperless_media_mount_type: "cifs"
+paperless_media_smb_username: "paperless-media"
+paperless_media_smb_password: "use-a-vaulted-password"
+```
+
+The role maps the SMB share to the rootless container's subordinate UID/GID.
+The mount target is `paperless_media_dir`; the other paths do not change. See
+`MIGRATE_PAPERLESS_TO_PODMAN_VM_PVE0.md` for the stopped-stack transfer and
+cutover procedure.
 
 ### Network Mount for Consume Directory
 
@@ -514,7 +533,6 @@ sudo rm -rf /opt/podman/paperless/media/thumbnails/*
 **Recommended approach:**
 
 1. **Restic daily backups** (2 AM via systemd timer)
-
    - Backs up data, media, scripts
    - Incremental, encrypted, deduplicated
    - Retention: 7 daily, 4 weekly, 12 monthly
@@ -597,7 +615,7 @@ sudo -u podman podman exec paperless-webserver document_importer /usr/src/paperl
 - **Database**: `/opt/podman/paperless/data/db.sqlite3`
 - **Documents**: `/opt/podman/paperless/media/documents/`
 - **Exports**: `/opt/podman/paperless/export/`
-- **Nginx config**: `/etc/nginx/conf.d/paperless.kerberos.fassbender.contact.conf`
+- **Nginx config**: `/etc/nginx/conf.d/paperless.<customer-domain>.conf`
 
 ## Security Notes
 

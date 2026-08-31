@@ -70,10 +70,9 @@
 
 # Network mount setup for consume directory
 - name: Install CIFS utilities if using SMB mount
-  apt:
+  package:
     name: cifs-utils
     state: present
-    update_cache: yes
   become: true
   when: paperless_enable_network_mount and paperless_network_mount_type == "cifs"
 
@@ -114,6 +113,62 @@
     group: root
     mode: "0755"
   become: true
+
+- name: Install filesystem client for Paperless media mount
+  package:
+    name: cifs-utils
+    state: present
+  become: true
+  when:
+    - paperless_enable_media_mount | bool
+
+- name: Validate Paperless media SMB configuration
+  assert:
+    that:
+      - paperless_media_mount_source | length > 0
+      - paperless_media_mount_type == 'cifs'
+      - paperless_media_smb_username | length > 0
+      - paperless_media_smb_password | length > 0
+    fail_msg: >-
+      Paperless media SMB storage requires a CIFS source, username, and
+      password.
+  no_log: true
+  when: paperless_enable_media_mount | bool
+
+- name: Create Paperless media SMB credentials
+  copy:
+    dest: "{{ paperless_media_smbcredentials_file }}"
+    content: |
+      username={{ paperless_media_smb_username }}
+      password={{ paperless_media_smb_password }}
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  no_log: true
+  when: paperless_enable_media_mount | bool
+
+- name: Create Paperless media mount directory
+  file:
+    path: "{{ paperless_media_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  when: paperless_enable_media_mount | bool
+
+- name: Mount dedicated Paperless media filesystem
+  ansible.posix.mount:
+    path: "{{ paperless_media_dir }}"
+    src: "{{ paperless_media_mount_source }}"
+    fstype: "{{ paperless_media_mount_type }}"
+    opts: "{{ paperless_media_mount_options }}"
+    state: mounted
+    dump: 0
+    passno: 0
+  become: true
+  when: paperless_enable_media_mount | bool
 
 #SMB Creds are copied in common role
 - name: Mount network consume directory (and persist to fstab)

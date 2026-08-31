@@ -29,6 +29,10 @@ all:
       local_username: "podman_vm"
       ssl_cert: "/etc/ssl/wildcard/kerberos.bitsnbyt.es/fullchain.pem"
       ssl_key: "/etc/ssl/wildcard/kerberos.bitsnbyt.es/key.pem"
+      paperless_enable_media_mount: true
+      paperless_media_mount_source: "//truenas.{{ customer_domain }}/paperless-media"
+      paperless_media_smb_username: "{{ truenas_paperless_smb_username }}"
+      paperless_media_smb_password: "{{ truenas_paperless_smb_password }}"
       # Store the API token in the ignored companion inventory or provide
       # TRUENAS_API_TOKEN.
       truenas_nfs_server: "truenas.{{ customer_domain }}"
@@ -37,7 +41,6 @@ all:
           export_path: "/mnt/tank/apps/nextcloud-data"
           path: "/srv/containers/nextcloud-data"
           encrypted: true
-
       truenas_datasets:
         - name: photos
           dataset: "tank/photos"
@@ -51,8 +54,23 @@ all:
           snapshot_retention:
             daily: 14
             weekly: 8
-            monthly: 24
+            monthly: 12
           replication: true
+        - name: paperless-media
+          dataset: "tank/apps/paperless-media"
+          export_path: "/mnt/tank/apps/paperless-media"
+          share_name: "paperless-media"
+          encrypted: true
+          group: paperless-media
+          permission_user: "{{ truenas_paperless_smb_username }}"
+          users:
+            - username: "{{ truenas_paperless_smb_username }}"
+              password: "{{ truenas_paperless_smb_password }}"
+              full_name: "Paperless media account"
+          snapshot_retention:
+            daily: 14
+            weekly: 8
+            monthly: 12
         - name: proxmox-vm-backups
           dataset: "tank/backups/proxmox-vm-backups"
           export_path: "/mnt/tank/backups/proxmox-vm-backups"

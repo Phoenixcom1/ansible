@@ -25,6 +25,10 @@ truenas_dataset_encryption_pbkdf2iters: 350000
 truenas_immich_smb_username: "immich-media"
 truenas_immich_smb_password: ""
 
+# Dedicated SMB account for Paperless document media. The password is supplied
+# by the vaulted companion inventory.
+truenas_paperless_smb_username: "paperless-media"
+
 # Dedicated SMB account for Proxmox VM backup storage. Set this through the
 # environment or an ignored vaulted inventory override.
 truenas_proxmox_vm_backup_account_password: "{{ lookup('env', 'TRUENAS_PROXMOX_VM_BACKUP_ACCOUNT_PASSWORD') | default('', true) }}"

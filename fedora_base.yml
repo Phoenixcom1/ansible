@@ -29,8 +29,8 @@
     #- deploy_jellyfin_container
     #- deploy_frigate_container
     #- truenas_immich_smb_provision
-    #- role: truenas_dataset_provision
-    #  when: truenas_datasets | default([]) | length > 0
+    - role: truenas_dataset_provision
+      when: truenas_datasets | default([]) | length > 0
     #- role: truenas_rsync_destination
     #  when: truenas_rsync_destinations | default([]) | length > 0
     #- truenas_system_config
@@ -38,13 +38,13 @@
     #- deploy_immich_container
     #- deploy_vaultwarden_container
     #- deploy_unifi_controller_container
-    #- deploy_paperless_container
+    - deploy_paperless_container
     #- deploy_frigate_container
     #- role: truenas_smb_provision
     #  when: "'vaultwarden' in restic_backup_enabled_services"
     #- truenas_replication
-    - role: restic-backup
-      when: restic_backup_enabled_services | default([]) | length > 0
+    #- role: restic-backup
+    #  when: restic_backup_enabled_services | default([]) | length > 0
     #- immich-snapshot-backup
     #- role: restic-restore
     #  when: restic_restore_enabled | default(false) | bool
