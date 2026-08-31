@@ -30,6 +30,7 @@ all:
       ssl_cert: "/etc/ssl/wildcard/kerberos.bitsnbyt.es/fullchain.pem"
       ssl_key: "/etc/ssl/wildcard/kerberos.bitsnbyt.es/key.pem"
       paperless_enable_media_mount: true
+      paperless_snapshot_enabled: true
       paperless_media_mount_source: "//truenas.{{ customer_domain }}/paperless-media"
       paperless_media_smb_username: "{{ truenas_paperless_smb_username }}"
       paperless_media_smb_password: "{{ truenas_paperless_smb_password }}"
@@ -68,6 +69,7 @@ all:
               password: "{{ truenas_paperless_smb_password }}"
               full_name: "Paperless media account"
           snapshot_retention:
+            hourly: 24
             daily: 14
             weekly: 8
             monthly: 12
@@ -113,6 +115,7 @@ all:
         - homepage
         - immich
         - jellyfin
+        - paperless
       restic_service_overrides:
         immich:
           destinations:
@@ -121,6 +124,24 @@ all:
             - "{{ immich_upload_dir | default('/srv/containers/immich-data') }}"
             - "{{ podman_service_dir }}/immich/postgres"
             - "{{ podman_service_dir }}/immich/immich.env"
+        paperless:
+          stop_before_backup: true
+          systemd_user_unit: paperless-stack.target
+          systemd_user: "{{ podman_username }}"
+          destinations:
+            - rest-offsite
+          paths:
+            - "{{ podman_service_dir }}/paperless/data"
+            - "{{ podman_service_dir }}/paperless/media"
+            - "{{ podman_service_dir }}/paperless/export"
+            - "{{ podman_service_dir }}/paperless/scripts"
+            - "{{ podman_service_dir }}/paperless/custom-cont-init.d"
+            - "{{ podman_service_dir }}/paperless/paperless.env"
+          excludes:
+            - "*/redisdata/*"
+            - "*/consume/*"
+            - "*/thumbnails/*"
+            - "*.log"
       restic_additional_destinations:
         - name: rest-offsite
           repository: "rest:https://restic.kerberos.bitsnbyt.es/restic/podman-vm-pve0"

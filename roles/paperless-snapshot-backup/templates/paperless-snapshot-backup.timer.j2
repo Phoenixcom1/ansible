@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily Paperless TrueNAS snapshot backup
+
+[Timer]
+OnCalendar={{ paperless_snapshot_time }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

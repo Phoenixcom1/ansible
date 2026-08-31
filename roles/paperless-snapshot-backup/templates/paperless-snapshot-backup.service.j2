@@ -1,0 +1,12 @@
+[Unit]
+Description=Create a consistent TrueNAS snapshot of Paperless media and database dump
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/scripts/paperless-snapshot-backup.sh
+TimeoutStartSec=900
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=paperless-snapshot-backup

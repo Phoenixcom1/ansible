@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+podman_user={{ paperless_snapshot_podman_user | quote }}
+runtime_dir="/run/user/$(id -u "$podman_user")"
+media_path={{ paperless_snapshot_media_path | quote }}
+database_dump_path="$media_path/{{ paperless_snapshot_dump_name }}"
+temporary_dump_path="$database_dump_path.tmp"
+snapshot_name="{{ paperless_snapshot_name_prefix }}-$(date -u +%Y%m%dT%H%M%SZ)"
+
+run_as_podman() {
+  runuser -u "$podman_user" -- env XDG_RUNTIME_DIR="$runtime_dir" "$@"
+}
+
+restart_stack() {
+  run_as_podman systemctl --user start {{ paperless_snapshot_systemd_target | quote }}
+}
+
+trap restart_stack EXIT
+
+run_as_podman systemctl --user stop {{ paperless_snapshot_systemd_target | quote }}
+cp {{ paperless_snapshot_database_path | quote }} "$temporary_dump_path"
+mv -f "$temporary_dump_path" "$database_dump_path"
+
+python3 /opt/scripts/paperless-truenas-jsonrpc-snapshot.py "$snapshot_name"

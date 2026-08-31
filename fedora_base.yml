@@ -39,6 +39,10 @@
     #- deploy_vaultwarden_container
     #- deploy_unifi_controller_container
     - deploy_paperless_container
+    - role: paperless-snapshot-backup
+      when: paperless_snapshot_enabled | default(false) | bool
+    - role: restic-backup
+      when: restic_backup_enabled_services | default([]) | length > 0
     #- deploy_frigate_container
     #- role: truenas_smb_provision
     #  when: "'vaultwarden' in restic_backup_enabled_services"

@@ -1,0 +1,107 @@
+---
+- name: Validate Paperless snapshot backup configuration
+  assert:
+    that:
+      - paperless_snapshot_media_path | length > 0
+      - paperless_snapshot_dataset | length > 0
+      - paperless_snapshot_api_url | length > 0
+      - paperless_snapshot_api_token | length > 0
+    fail_msg: >-
+      Define truenas_api_token and the Paperless snapshot backup configuration
+      before enabling scheduled Paperless snapshots.
+  no_log: true
+  when: paperless_snapshot_enabled | bool
+
+- name: Install the Python WebSocket client for the Paperless snapshot request
+  package:
+    name: python3-websocket-client
+    state: present
+  become: true
+  when: paperless_snapshot_enabled | bool
+
+- name: Create the Paperless snapshot API token file
+  copy:
+    dest: "{{ paperless_snapshot_api_token_file }}"
+    content: "{{ paperless_snapshot_api_token }}\n"
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  no_log: true
+  when: paperless_snapshot_enabled | bool
+
+- name: Create the Paperless snapshot scripts directory
+  file:
+    path: /opt/scripts
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  when: paperless_snapshot_enabled | bool
+
+- name: Deploy the TrueNAS JSON-RPC snapshot helper for Paperless
+  template:
+    src: truenas-jsonrpc-snapshot.py.j2
+    dest: /opt/scripts/paperless-truenas-jsonrpc-snapshot.py
+    owner: root
+    group: root
+    mode: "0750"
+  become: true
+  when: paperless_snapshot_enabled | bool
+
+- name: Deploy the Paperless snapshot backup script
+  template:
+    src: paperless-snapshot-backup.sh.j2
+    dest: /opt/scripts/paperless-snapshot-backup.sh
+    owner: root
+    group: root
+    mode: "0750"
+  become: true
+  when: paperless_snapshot_enabled | bool
+
+- name: Deploy the Paperless snapshot backup service
+  template:
+    src: paperless-snapshot-backup.service.j2
+    dest: /etc/systemd/system/paperless-snapshot-backup.service
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: paperless_snapshot_service
+  when: paperless_snapshot_enabled | bool
+
+- name: Deploy the Paperless snapshot backup timer
+  template:
+    src: paperless-snapshot-backup.timer.j2
+    dest: /etc/systemd/system/paperless-snapshot-backup.timer
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: paperless_snapshot_timer
+  when: paperless_snapshot_enabled | bool
+
+- name: Reload systemd daemon for Paperless snapshot backup
+  systemd:
+    daemon_reload: true
+  become: true
+  when:
+    - paperless_snapshot_enabled | bool
+    - paperless_snapshot_service.changed or paperless_snapshot_timer.changed
+
+- name: Enable and start the Paperless snapshot backup timer
+  systemd:
+    name: paperless-snapshot-backup.timer
+    enabled: true
+    state: started
+  become: true
+  when: paperless_snapshot_enabled | bool
+
+- name: Disable the Paperless snapshot backup timer when not enabled
+  systemd:
+    name: paperless-snapshot-backup.timer
+    enabled: false
+    state: stopped
+  become: true
+  when: not (paperless_snapshot_enabled | bool)

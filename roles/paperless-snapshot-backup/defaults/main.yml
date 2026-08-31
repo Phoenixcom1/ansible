@@ -1,0 +1,16 @@
+---
+# Consistent Paperless database and media snapshots on TrueNAS.
+paperless_snapshot_enabled: true
+paperless_snapshot_time: "*-*-* 01:30:00"
+paperless_snapshot_media_path: "{{ paperless_media_dir }}"
+paperless_snapshot_dataset: "tank/apps/paperless-media"
+paperless_snapshot_name_prefix: "paperless-backup"
+paperless_snapshot_dump_name: "paperless-db.sqlite3"
+paperless_snapshot_database_path: "{{ paperless_data_dir }}/db.sqlite3"
+paperless_snapshot_podman_user: "{{ podman_username }}"
+paperless_snapshot_systemd_target: "paperless-stack.target"
+paperless_snapshot_api_url: "https://truenas.{{ customer_domain }}"
+paperless_snapshot_jsonrpc_url: "{{ paperless_snapshot_api_url | regex_replace('^https', 'wss') }}/api/current"
+paperless_snapshot_api_token: "{{ truenas_api_token | default('', true) }}"
+paperless_snapshot_api_validate_certs: "{{ truenas_api_validate_certs }}"
+paperless_snapshot_api_token_file: "/root/.paperless_snapshot_truenas_api_token"
