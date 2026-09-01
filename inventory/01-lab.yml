@@ -160,13 +160,13 @@ all:
       truenas_rsync_destination_dataset_parents:
         - "tank/backups"
       truenas_rsync_destinations:
-        - name: synology-test
-          dataset: "tank/backups/synology-test"
-          export_path: "/mnt/tank/backups/synology-test"
-          username: "synology-test"
-          password: "{{ truenas_restic_smb_password }}"
+        - name: Synology-Armin
+          dataset: "tank/backups/synology-armin"
+          export_path: "/mnt/tank/backups/synology-armin"
+          username: "synology-armin"
+          password: "{{ truenas_restic_smb_password_synology_armin }}"
           allowed_hosts:
-            - "192.168.1.50"
+            - "192.168.178.34"
       #vlan_id: 107
       #vlan_ip_address: "" # Leave empty; IP will be on the bridge instead
       #bridge_name: "br-vlan107" # Host bridge on VLAN 107
