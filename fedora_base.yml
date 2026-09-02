@@ -29,10 +29,10 @@
     #- deploy_jellyfin_container
     #- deploy_frigate_container
     #- truenas_immich_smb_provision
-    - role: truenas_dataset_provision
-      when: truenas_datasets | default([]) | length > 0
-    - role: truenas_rsync_destination
-      when: truenas_rsync_destinations | default([]) | length > 0
+    #- role: truenas_dataset_provision
+    #  when: truenas_datasets | default([]) | length > 0
+    #- role: truenas_rsync_destination
+    #  when: truenas_rsync_destinations | default([]) | length > 0
     #- truenas_system_config
     #- truenas_cloud_sync
     #- deploy_immich_container
@@ -59,3 +59,4 @@
     #- deploy_adguardhome_container
     #- deploy_adguardhome_sync_container
     #- deploy_nextcloud_container
+    - deploy_gitea_container

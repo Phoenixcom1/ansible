@@ -1,0 +1,30 @@
+---
+# Gitea service deployment configuration
+
+# Podman user
+podman_user: "{{ podman_username }}"
+
+# Persistent application data
+gitea_data_dir: "{{ podman_service_dir }}/gitea"
+
+# Network configuration
+gitea_network: gitea_net
+gitea_network_driver: bridge
+
+# Container image and published ports
+gitea_image: "docker.io/gitea/gitea:latest-rootless"
+gitea_port: 3002
+gitea_ssh_port: 2222
+gitea_ssh_bind_address: "0.0.0.0"
+gitea_ssh_firewall_sources:
+  - "192.168.1.0/24"
+gitea_container_port: 3000
+gitea_container_ssh_port: 2222
+
+# Application settings
+gitea_domain: "gitea.{{ customer_domain }}"
+gitea_root_url: "https://{{ gitea_domain }}/"
+gitea_db_type: sqlite3
+gitea_ssh_domain: "{{ gitea_domain }}"
+gitea_disable_registration: true
+gitea_require_sign_in_view: false

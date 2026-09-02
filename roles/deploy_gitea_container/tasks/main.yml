@@ -1,0 +1,175 @@
+---
+# Gitea service deployment using a rootless Podman Quadlet
+
+- name: Get podman user info
+  getent:
+    database: passwd
+    key: "{{ podman_user }}"
+  register: podman_user_info
+  changed_when: false
+
+- name: Extract podman user UID
+  set_fact:
+    podman_user_uid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][1] }}"
+  when: podman_user in podman_user_info.ansible_facts.getent_passwd
+
+- name: Ensure firewalld is installed on RedHat-family hosts
+  ansible.builtin.package:
+    name: firewalld
+    state: present
+  become: true
+  when: ansible_facts['os_family'] == 'RedHat'
+
+- name: Ensure firewalld is enabled and running on RedHat-family hosts
+  ansible.builtin.systemd:
+    name: firewalld
+    enabled: true
+    state: started
+  become: true
+  when: ansible_facts['os_family'] == 'RedHat'
+
+- name: Check Gitea SSH firewall rules
+  ansible.builtin.command:
+    cmd: >-
+      firewall-cmd --permanent --query-rich-rule='rule family="ipv4"
+      source address="{{ item }}" port port="{{ gitea_ssh_port }}"
+      protocol="tcp" accept'
+  register: gitea_firewall_rule_checks
+  changed_when: false
+  failed_when: false
+  loop: "{{ gitea_ssh_firewall_sources }}"
+  when: ansible_facts['os_family'] == 'RedHat'
+  become: true
+
+- name: Add Gitea SSH firewall rules
+  ansible.builtin.command:
+    cmd: >-
+      firewall-cmd --permanent --add-rich-rule='rule family="ipv4"
+      source address="{{ item.item }}" port port="{{ gitea_ssh_port }}"
+      protocol="tcp" accept'
+  loop: "{{ gitea_firewall_rule_checks.results }}"
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - item.rc != 0
+  become: true
+
+- name: Reload firewalld after Gitea SSH rule changes
+  ansible.builtin.command:
+    cmd: firewall-cmd --reload
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - gitea_firewall_rule_checks.results | selectattr('rc', 'ne', 0) | list | length > 0
+  become: true
+
+- name: Ensure Gitea persistent directories exist
+  file:
+    path: "{{ gitea_data_dir }}/{{ item }}"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+  loop:
+    - data
+    - config
+
+- name: Ensure Quadlet directory exists
+  file:
+    path: "/home/{{ podman_user }}/.config/containers/systemd"
+    state: directory
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0755"
+  become: true
+
+- name: Deploy Gitea network Quadlet
+  template:
+    src: gitea.network.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/{{ gitea_network }}.network"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+
+- name: Deploy Gitea Quadlet container file
+  template:
+    src: gitea.container.j2
+    dest: "/home/{{ podman_user }}/.config/containers/systemd/gitea.container"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+  register: gitea_quadlet_deployed
+
+- name: Enable lingering for podman user
+  command: loginctl enable-linger {{ podman_user }}
+  become: true
+  changed_when: false
+
+- name: Reload systemd user daemon
+  systemd:
+    daemon_reload: yes
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+
+- name: Restart Gitea service when Quadlet changed
+  systemd:
+    name: gitea
+    state: restarted
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  when: gitea_quadlet_deployed.changed
+
+- name: Ensure Gitea service is enabled and started
+  systemd:
+    name: gitea
+    enabled: yes
+    state: started
+    scope: user
+  become: true
+  become_user: "{{ podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  when: not gitea_quadlet_deployed.changed
+
+- name: Wait for Gitea container to be healthy
+  command: podman healthcheck run gitea
+  become: true
+  become_user: "{{ podman_user }}"
+  register: gitea_health
+  retries: 10
+  delay: 3
+  until: gitea_health.rc == 0
+  changed_when: false
+  ignore_errors: true
+
+- name: Display Gitea deployment result
+  debug:
+    msg: |
+      Gitea deployed successfully via Podman Quadlet!
+      - Quadlet: ~/.config/containers/systemd/gitea.container
+      - Service: gitea.service
+      - Web UI: {{ gitea_root_url }}
+      - SSH: ssh://git@{{ gitea_ssh_domain }}:{{ gitea_ssh_port }}
+      - Health: {% if gitea_health.rc == 0 %}PASSED{% else %}FAILED (check logs){% endif %}
+
+- name: Ensure nginx conf.d directory exists
+  file:
+    path: /etc/nginx/conf.d
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Deploy Gitea nginx reverse proxy configuration
+  template:
+    src: gitea.conf.j2
+    dest: /etc/nginx/conf.d/gitea.conf
+    mode: "0644"
+  notify: reload nginx
+  become: true

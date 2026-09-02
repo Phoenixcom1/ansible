@@ -1,0 +1,43 @@
+# Managed by Ansible - Podman Quadlet for Gitea
+
+[Unit]
+Description=Gitea Git Service
+Documentation=https://docs.gitea.com/
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image={{ gitea_image }}
+ContainerName=gitea
+
+Network={{ gitea_network }}.network
+PublishPort=127.0.0.1:{{ gitea_port }}:{{ gitea_container_port }}/tcp
+PublishPort={{ gitea_ssh_bind_address }}:{{ gitea_ssh_port }}:{{ gitea_container_ssh_port }}/tcp
+
+Volume={{ gitea_data_dir }}/data:/var/lib/gitea:Z,U
+Volume={{ gitea_data_dir }}/config:/etc/gitea:Z,U
+
+Environment=USER_UID=1000
+Environment=USER_GID=1000
+Environment=GITEA__database__DB_TYPE={{ gitea_db_type }}
+Environment=GITEA__server__DOMAIN={{ gitea_domain }}
+Environment=GITEA__server__ROOT_URL={{ gitea_root_url }}
+Environment=GITEA__server__HTTP_PORT={{ gitea_container_port }}
+Environment=GITEA__server__SSH_DOMAIN={{ gitea_ssh_domain }}
+Environment=GITEA__server__SSH_PORT={{ gitea_ssh_port }}
+Environment=GITEA__server__SSH_LISTEN_PORT={{ gitea_container_ssh_port }}
+Environment=GITEA__service__DISABLE_REGISTRATION={{ gitea_disable_registration | lower }}
+Environment=GITEA__service__REQUIRE_SIGNIN_VIEW={{ gitea_require_sign_in_view | lower }}
+
+HealthCmd=curl -f http://localhost:{{ gitea_container_port }}/api/healthz || exit 1
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=30s
+
+[Service]
+Restart=always
+TimeoutStopSec=70
+
+[Install]
+WantedBy=default.target
