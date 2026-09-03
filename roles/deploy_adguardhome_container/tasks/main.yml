@@ -15,25 +15,6 @@
     podman_user_gid: "{{ podman_user_info.ansible_facts.getent_passwd[podman_user][2] }}"
   when: podman_user in podman_user_info.ansible_facts.getent_passwd
 
-# Create dedicated network for AdGuard Home containers
-- name: Check if AdGuard Home network exists
-  command: podman network exists {{ adguardhome_network }}
-  become: true
-  become_user: "{{ podman_user }}"
-  environment:
-    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
-  register: network_check
-  changed_when: false
-  failed_when: false
-
-- name: Create AdGuard Home network
-  command: podman network create {{ adguardhome_network }}
-  become: true
-  become_user: "{{ podman_user }}"
-  environment:
-    XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
-  when: network_check.rc != 0
-
 # Configure system to allow unprivileged port binding for DNS (port 53)
 - name: Configure unprivileged port start for DNS
   sysctl:
@@ -120,18 +101,27 @@
 # Create Quadlet directory (Podman systemd units)
 - name: Create Quadlet directory for podman user
   file:
-    path: "/home/{{ podman_user }}/.config/containers/systemd"
+    path: "{{ podman_containers_systemd_dir }}"
     state: directory
     owner: "{{ podman_user }}"
     group: "{{ podman_user }}"
     mode: "0755"
   become: true
 
+- name: Deploy AdGuard Home network Quadlet
+  template:
+    src: adguardhome.network.j2
+    dest: "{{ podman_containers_systemd_dir }}/{{ adguardhome_network }}.network"
+    owner: "{{ podman_user }}"
+    group: "{{ podman_user }}"
+    mode: "0644"
+  become: true
+
 # Deploy Quadlet container file
 - name: Deploy adguardhome Quadlet container file
   template:
-    src: adguardhome.container.j2
-    dest: "/home/{{ podman_user }}/.config/containers/systemd/adguardhome.container"
+    src: "{{ adguardhome_quadlet_template }}"
+    dest: "{{ podman_containers_systemd_dir }}/{{ adguardhome_quadlet_file }}"
     owner: "{{ podman_user }}"
     group: "{{ podman_user }}"
     mode: "0644"
@@ -176,24 +166,31 @@
   become_user: "{{ podman_user }}"
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ podman_user_uid }}"
+  when: not quadlet_deployed.changed
+
+- name: Display AdGuard Home deployment result
+  debug:
+    msg: |
+      AdGuard Home deployed successfully via Podman Quadlet!
+      - Quadlet: {{ podman_containers_systemd_dir }}/{{ adguardhome_quadlet_file }}
+      - Service: adguardhome.service
+      - Client URL: {{ adguardhome_client_url }}
+      - Auto-update: {{ 'Enabled' if adguardhome_auto_update else 'Disabled' }}
 
 # Deploy nginx reverse proxy configuration
+- name: Ensure nginx conf.d directory exists
+  file:
+    path: /etc/nginx/conf.d
+    state: directory
+    mode: "0755"
+  become: true
+
 - name: Deploy nginx reverse proxy config for adguardhome
   template:
     src: adguardhome.conf.j2
-    dest: /etc/nginx/sites-available/adguardhome.conf
+    dest: /etc/nginx/conf.d/adguardhome.conf
     owner: root
     group: root
     mode: "0644"
-  become: true
-  notify: reload nginx
-
-- name: Enable adguardhome nginx site
-  file:
-    src: /etc/nginx/sites-available/adguardhome.conf
-    dest: /etc/nginx/sites-enabled/adguardhome.conf
-    state: link
-    owner: root
-    group: root
   become: true
   notify: reload nginx

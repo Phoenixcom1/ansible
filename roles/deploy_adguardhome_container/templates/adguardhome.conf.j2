@@ -14,7 +14,7 @@ server {
 
     # AdGuard Home reverse proxy
     location / {
-        proxy_pass http://127.0.0.1:{{ adguardhome_admin_port }};
+        proxy_pass http://127.0.0.1:{% if adguardhome_initial_setup_enabled %}{{ adguardhome_initial_setup_port }}{% else %}{{ adguardhome_admin_port }}{% endif %};
         
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;

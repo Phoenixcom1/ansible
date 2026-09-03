@@ -135,14 +135,18 @@ adguardhome_timezone: "Europe/Paris"
 
 1. **Deploy the role** - Run the playbook to create the container
 2. **Access initial setup** - Navigate to `http://your-server-ip:3010`
-   - **Note**: If you cannot access the server IP directly, the initial setup wizard will be available via the nginx reverse proxy at `https://{{ adguardhome_domain }}`
+
+- Port 3010 maps to AdGuard Home's first-run interface on container port 3000.
+- While `adguardhome_initial_setup_enabled` is true, the nginx HTTPS URL also proxies to this first-run interface.
+
 3. **Complete setup wizard**:
    - Set admin username and password
    - Configure listening interfaces (use 0.0.0.0 for all interfaces)
-   - Admin interface should be on port 80 inside container
-4. **Access via HTTPS** - After initial setup, access via `https://{{ adguardhome_domain }}`
 
-**Note**: Port 3010 is only used during initial setup and can be removed from the quadlet after configuration is complete.
+- Keep the admin interface on port 80 inside the container
+
+4. **Access via HTTPS** - After initial setup, access via `https://{{ adguardhome_domain }}`
+5. **Disable the setup port** - Set `adguardhome_initial_setup_enabled: false` and rerun the role after completing setup. Nginx will then proxy to the admin interface on container port 80.
 
 ### Post-Deployment Configuration
 
@@ -232,7 +236,6 @@ Add to `roles/restic-backup/defaults/main.yml`:
 adguardhome:
   enabled: true
   stop_before_backup: true
-  compose_file: "{{ podman_service_dir }}/adguardhome/compose_adguardhome.yml"
   project_name: adguardhome
   paths:
     - "{{ podman_service_dir }}/adguardhome/conf"
@@ -241,6 +244,9 @@ adguardhome:
     - "*/filters/*" # Blocklists can be re-downloaded
     - "querylog.json*" # Query logs (optional, can be large)
 ```
+
+The service is managed by the Quadlet at
+`/home/podman/.config/containers/systemd/adguardhome.container`.
 
 ---
 
