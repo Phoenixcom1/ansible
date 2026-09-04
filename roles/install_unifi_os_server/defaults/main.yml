@@ -3,6 +3,8 @@
 
 # Paste the direct Linux installer URL from UI Releases/Download page.
 unifi_os_server_installer_url: ""
+# Public URL used to reach the UniFi OS Server after installation.
+unifi_os_server_client_url: "https://unifi.{{ customer_domain }}"
 
 # Package prerequisites from the official Linux instructions.
 unifi_os_server_required_packages:

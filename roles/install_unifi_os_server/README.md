@@ -19,6 +19,7 @@ Notes:
 ## Variables
 
 - `unifi_os_server_installer_url` (required): direct Linux installer URL
+- `unifi_os_server_client_url`: public URL used to reach the installed UniFi OS Server
 - `unifi_os_server_downloader`: `curl` (default) or `wget`
 - `unifi_os_server_download_dir`: target download dir, default `/opt/installers`
 - `unifi_os_server_min_free_space_mb`: minimum free space in download filesystem, default `2048`
@@ -47,4 +48,9 @@ Notes:
     - role: install_unifi_os_server
       vars:
         unifi_os_server_installer_url: "https://fw-download.ubnt.com/data/unifi-os-server/<your-linux-installer>"
+        unifi_os_server_client_url: "https://unifi.example.com"
 ```
+
+The role is gated in the Fedora playbook and runs only when
+`unifi_os_server_installer_url` is defined. Set that host variable to the
+current direct Linux installer URL before applying the playbook.

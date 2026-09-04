@@ -37,7 +37,6 @@
     #- truenas_cloud_sync
     #- deploy_immich_container
     #- deploy_vaultwarden_container
-    #- deploy_unifi_controller_container
     #- deploy_paperless_container
     #- role: paperless-snapshot-backup
     #  when: paperless_snapshot_enabled | default(false) | bool
@@ -57,6 +56,10 @@
     #- deploy_openwakeword_container
     #- deploy_openwebui_container
     #- deploy_adguardhome_container
-    - deploy_adguardhome_sync_container
+    #- deploy_adguardhome_sync_container
+    #- role: install_unifi_os_server
+    #  when:
+    #    - unifi_os_server_installer_url | default('') | length > 0
+    #    - ansible_os_family == 'RedHat'
     #- deploy_nextcloud_container
     #- deploy_gitea_container
