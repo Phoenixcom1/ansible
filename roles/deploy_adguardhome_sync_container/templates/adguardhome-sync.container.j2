@@ -10,12 +10,15 @@ After=network-online.target adguardhome.service
 Requires=adguardhome.service
 
 [Container]
-Image=ghcr.io/bakito/adguardhome-sync:latest
-AutoUpdate=registry
+Image={{ adguardhome_sync_image }}
+AutoUpdate={{ 'registry' if adguardhome_sync_auto_update else 'disabled' }}
 ContainerName=adguardhome-sync
 
 # Network
-Network={{ adguardhome_network }}
+Network={{ adguardhome_network }}.network
+{% for network in adguardhome_sync_additional_networks %}
+Network={{ network }}
+{% endfor %}
 {% if adguardhome_sync_api_enabled %}
 PublishPort=127.0.0.1:{{ adguardhome_sync_api_port }}:8080/tcp
 {% endif %}

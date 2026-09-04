@@ -42,7 +42,8 @@ AdGuard Home Sync automates the replication of:
 
 ```yaml
 # Application settings
-adguardhome_sync_domain: "adguardhome-sync.kerberos.fassbender.contact"
+adguardhome_sync_domain: "sync.example.com"
+adguardhome_sync_client_url: "https://{{ adguardhome_sync_domain }}"
 adguardhome_sync_api_port: 8082
 
 # Data directory for config
@@ -54,26 +55,40 @@ adguardhome_sync_run_on_start: true
 adguardhome_sync_continue_on_error: false
 
 # Origin AdGuard Home instance
-adguardhome_sync_origin_url: "http://192.168.1.249" # External origin
-adguardhome_sync_origin_username: "admin"
-adguardhome_sync_origin_password: "changeme"
+adguardhome_sync_origin_url: "http://adguardhome" # Same-host origin
+adguardhome_sync_username: "admin"
+adguardhome_sync_password: "{{ vault_adguardhome_password }}"
 
 # Replica instances
 adguardhome_sync_replicas:
-  - url: "http://adguardhome" # Local replica via container name
-    username: "admin"
-    password: "changeme"
+  - client_url: "https://adguard-replica.example.com"
+    # Optional; defaults to the Sync instance credentials
+    # username: "replica-admin"
+    # password: "{{ vault_adguardhome_replica_password }}"
 
 # API credentials
 adguardhome_sync_api_enabled: true
-adguardhome_sync_api_username: "admin"
-adguardhome_sync_api_password: "changeme"
+adguardhome_sync_api_username: "{{ adguardhome_sync_username }}"
+adguardhome_sync_api_password: "{{ vault_adguardhome_password }}"
 adguardhome_sync_api_dark_mode: true
 
 # Podman user and network
 podman_user: "{{ podman_username }}"
 adguardhome_network: "adguardhome_net" # Dedicated isolated network
+# Existing Podman networks containing replica instances
+adguardhome_sync_additional_networks: []
 ```
+
+Additional existing networks can be attached to the Sync container without
+being managed by this role:
+
+```yaml
+adguardhome_sync_additional_networks:
+  - "adguardhome-replica-net"
+```
+
+Use the replica container name and its internal HTTP port in `client_url`,
+for example `http://adguardhome-replica`.
 
 ### Environment File (.env)
 
@@ -87,26 +102,30 @@ Credentials are stored in a separate `.env` file at `{{ adguardhome_sync_config_
 The `.env` file contains:
 
 ```bash
-ORIGIN_URL=http://192.168.1.249
+ORIGIN_URL=http://adguardhome
 ORIGIN_USERNAME=admin
-ORIGIN_PASSWORD=changeme
+ORIGIN_PASSWORD={{ vault_adguardhome_password }}
 
-REPLICA1_URL=http://adguardhome
+REPLICA1_URL=https://adguard-replica.example.com
 REPLICA1_USERNAME=admin
-REPLICA1_PASSWORD=changeme
+REPLICA1_PASSWORD={{ vault_adguardhome_password }}
+
+# Optional per-replica overrides in inventory:
+# username: "replica-admin"
+# password: "{{ vault_adguardhome_replica_password }}"
 
 API_USERNAME=admin
-API_PASSWORD=changeme
+API_PASSWORD={{ vault_adguardhome_password }}
 ```
 
 ### Configuring Instances
 
-**Origin Instance** (external AdGuard Home):
+**Origin Instance**:
 
 ```yaml
-adguardhome_sync_origin_url: "http://192.168.1.249" # Use actual IP/hostname and port
-adguardhome_sync_origin_username: "admin"
-adguardhome_sync_origin_password: "changeme"
+adguardhome_sync_origin_url: "http://adguardhome"
+adguardhome_sync_username: "admin"
+adguardhome_sync_password: "{{ vault_adguardhome_password }}"
 ```
 
 **Replica Instances**:
@@ -115,29 +134,22 @@ For a local replica (same Podman network):
 
 ```yaml
 adguardhome_sync_replicas:
-  - url: "http://adguardhome" # Container name (both on adguardhome_net)
-    username: "admin"
-    password: "changeme"
+  - client_url: "http://adguardhome" # Same-host replica
 ```
 
 For external replicas:
 
 ```yaml
 adguardhome_sync_replicas:
-  - url: "http://192.168.1.10:80"
-    username: "admin"
-    password: "changeme"
-  - url: "https://adguard.example.com"
-    username: "admin"
-    password: "changeme"
+  - client_url: "https://adguard-replica.example.com"
     insecureSkipVerify: true # For self-signed certificates
 ```
 
 **Important**: Use the correct port for each instance:
 
-- External instances with macvlan: typically port 80 or 443
-- Local container on same network: use container name with port 80
-- Host-published ports: use the mapped external port
+- External instances: use their reachable client URL, typically port 80 or 443
+- Local container on the same network: use its container name and port 80
+- Host-published instances: use the mapped external port
 
 ### Feature Flags
 
@@ -171,11 +183,9 @@ adguardhome_sync_features:
   roles:
     - deploy_adguardhome_sync_container
   vars:
-    adguardhome_sync_origin_password: "{{ vault_adguardhome_password }}"
+    adguardhome_sync_password: "{{ vault_adguardhome_password }}"
     adguardhome_sync_replicas:
-      - url: "http://192.168.1.10:3000"
-        username: "admin"
-        password: "{{ vault_replica1_password }}"
+      - client_url: "https://adguard-replica.example.com"
 ```
 
 ### Deploy
@@ -190,17 +200,13 @@ ansible-playbook -i inventory/01-lab.yml site.yml -l docker-vm --tags deploy_adg
 
 ```bash
 # Check service status
-systemctl --user status adguardhome-sync
-
-# View logs
-journalctl --user -u adguardhome-sync -f
 
 # Restart service
 systemctl --user restart adguardhome-sync
 
 # Trigger manual sync (via API)
 curl -X POST http://localhost:8080/sync \
-  -u admin:changeme
+  -u "${ADGUARD_SYNC_USERNAME}:${ADGUARD_SYNC_PASSWORD}"
 ```
 
 ### Web UI
@@ -229,21 +235,18 @@ podman ps --filter name=adguardhome --format "{{.Names}}: {{.Networks}}"
 # Test connectivity from sync container to replica
 podman exec adguardhome-sync wget -O- http://adguardhome/control/status
 
-# Test external origin connectivity
-podman exec adguardhome-sync wget -O- http://192.168.1.249/control/status
-````
+# Test connectivity to an instance using its client URL
+podman exec adguardhome-sync wget -O- https://adguard-replica.example.com/control/status
 
-### Origin/Replica URL Configuration
-
-**For local AdGuard Home replica** (same host):
+Use the instance's client URL and admin interface port, not the DNS port (53).
 
 - Use container name: `http://adguardhome` or `http://adguardhome:80`
 - Both containers must be on `adguardhome_net` network
 
-**For external AdGuard Home instances**:
+**For AdGuard Home instances on other hosts**:
 
-- Use IP/hostname with correct port: `http://192.168.1.249:80`
-- Check which port the admin interface is published on (often 80, 443, or 3000)
+- Use the host's `adguardhome_client_url`, for example `https://adguard-replica.example.com`
+- Ensure the URL reaches the admin interface, normally on port 80 or 443
 
 **Do NOT use**:
 
@@ -282,8 +285,8 @@ restic_global_excludes:
   - "*/cache/*"
   - "*/tmp/*"
   - "*.log"
-  - "*/.env"  # Exclude all .env files
-````
+  - "*/.env" # Exclude all .env files
+```
 
 The YAML configuration file can be safely backed up as it no longer contains credentials.
 
@@ -299,10 +302,10 @@ The YAML configuration file can be safely backed up as it no longer contains cre
 - Both AdGuard Home containers run on isolated `adguardhome_net` network
   The origin URL should point to the **local AdGuard Home admin interface**:
 
-- If running on the same host: `http://localhost:3180` (AdGuard Home admin port)
-- If on different host: `http://<adguardhome-ip>:<port>`
+- If running on the same host: `http://adguardhome` (AdGuard Home container on the shared Podman network)
+- If on a different host: use that host's `adguardhome_client_url`
 
-**Note**: Use the internal admin port (default 3180), not the DNS port (53)
+**Note**: Use each instance's client URL for synchronization, not its DNS port (53).
 
 ### Container Won't Start
 
