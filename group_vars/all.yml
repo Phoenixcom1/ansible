@@ -5,8 +5,10 @@
 podman_username: podman
 podman_service_dir: /opt/podman
 
-# Per-client domain. Override this for each client environment.
-customer_domain: "kerberos.bitsnbyt.es"
+# Per-client public domain. Override customer_url for each client environment.
+customer_url: "kerberos.bitsnbyt.es"
+# Compatibility alias used by existing roles until they are migrated.
+customer_domain: "{{ customer_url }}"
 
 # Verify the TrueNAS API certificate for all storage provisioners.
 truenas_api_validate_certs: true

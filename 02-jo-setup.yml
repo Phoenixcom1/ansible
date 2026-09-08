@@ -1,0 +1,52 @@
+- hosts: proxmox
+  roles:
+    - setup_proxmox_acme_plugin
+# - hosts: podman-vm
+#   roles:
+#     - platform_facts
+#     - setup_podman_acme_client
+# Leaving those empty causes issues e.g. when pulling container images.
+# environment:
+#   http_proxy:
+#   https_proxy:
+
+# vars_prompt:
+#   - name: cryptsetup_user_passphrase
+#     prompt: "Enter the passphrase for the encrypted partitions"
+#     private: true
+#     confirm: true
+# - hosts: podman-vm
+
+#   roles:
+#     - platform_facts
+#- common
+#- local-user
+#- qemu-guest-agent
+#- podman
+#- podman-user
+# NFS datasets need the Podman user to exist so TrueNAS permissions can be
+# assigned before services consume their mounts.
+#- truenas_nfs_provision
+#- truenas_nfs_client
+#- nginx_reverse_proxy
+#- truenas_immich_smb_provision
+#- role: truenas_dataset_provision
+#  when: truenas_datasets | default([]) | length > 0
+#- role: truenas_rsync_destination
+#  when: truenas_rsync_destinations | default([]) | length > 0
+#- truenas_system_config
+#- truenas_cloud_sync
+#- deploy_immich_container
+#- deploy_vaultwarden_container
+#- deploy_paperless_container
+#- role: paperless-snapshot-backup
+#  when: paperless_snapshot_enabled | default(false) | bool
+#- role: restic-backup
+#  when: restic_backup_enabled_services | default([]) | length > 0
+#- role: truenas_smb_provision
+#  when: "'vaultwarden' in restic_backup_enabled_services"
+#- truenas_replication
+#- role: restic-backup
+#  when: restic_backup_enabled_services | default([]) | length > 0
+#- immich-snapshot-backup
+#- deploy_nextcloud_container
