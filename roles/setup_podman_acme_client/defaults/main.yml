@@ -1,0 +1,10 @@
+---
+# DNS-01 ACME client configuration for a Podman host.
+podman_acme_client_email: ""
+podman_acme_client_server: letsencrypt_test
+podman_acme_client_dns_api: dns_hetznercloud
+podman_acme_client_dns_token: ""
+podman_acme_client_domain: ""
+podman_acme_client_install_dir: /etc/ssl/wildcard
+podman_acme_client_cert_dir: "{{ podman_acme_client_install_dir }}/{{ podman_acme_client_domain }}"
+podman_acme_client_dnssleep: 120

@@ -1,0 +1,82 @@
+---
+- name: Validate Podman ACME client configuration
+  ansible.builtin.assert:
+    that:
+      - podman_acme_client_email | length > 0
+      - podman_acme_client_dns_token | length > 0
+      - podman_acme_client_domain is match('^[a-z0-9][a-z0-9.-]+[a-z0-9]$')
+      - podman_acme_client_server in ['letsencrypt_test', 'letsencrypt']
+    fail_msg: >-
+      Set the ACME contact email, Hetzner DNS token, and base domain before
+      running the Podman ACME client role.
+
+- name: Install ACME client prerequisites
+  ansible.builtin.package:
+    name:
+      - curl
+      - socat
+    state: present
+  become: true
+
+- name: Check whether acme.sh is installed
+  ansible.builtin.stat:
+    path: /root/.acme.sh/acme.sh
+  register: podman_acme_client_binary
+  become: true
+
+- name: Install acme.sh
+  ansible.builtin.shell: >-
+    curl https://get.acme.sh | sh -s email={{ podman_acme_client_email }}
+  args:
+    executable: /bin/sh
+  become: true
+  when: not podman_acme_client_binary.stat.exists
+
+- name: Ensure certificate install directory exists
+  ansible.builtin.file:
+    path: "{{ podman_acme_client_cert_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Issue or renew the Podman wildcard certificate
+  ansible.builtin.command:
+    argv:
+      - /root/.acme.sh/acme.sh
+      - --issue
+      - --server
+      - "{{ podman_acme_client_server }}"
+      - --dns
+      - "{{ podman_acme_client_dns_api }}"
+      - --dnssleep
+      - "{{ podman_acme_client_dnssleep | string }}"
+      - -d
+      - "{{ podman_acme_client_domain }}"
+      - -d
+      - "*.{{ podman_acme_client_domain }}"
+  environment:
+    HETZNER_TOKEN: "{{ podman_acme_client_dns_token }}"
+  become: true
+  no_log: true
+  register: podman_acme_client_issue
+  changed_when: true
+
+- name: Install the certificate for Nginx and service roles
+  ansible.builtin.command:
+    argv:
+      - /root/.acme.sh/acme.sh
+      - --install-cert
+      - -d
+      - "{{ podman_acme_client_domain }}"
+      - --key-file
+      - "{{ podman_acme_client_cert_dir }}/key.pem"
+      - --fullchain-file
+      - "{{ podman_acme_client_cert_dir }}/fullchain.pem"
+      - --reloadcmd
+      - systemctl reload nginx
+  become: true
+  no_log: true
+  register: podman_acme_client_install
+  changed_when: true

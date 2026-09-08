@@ -1,0 +1,22 @@
+---
+# Proxmox VE ACME DNS challenge plugin configuration.
+proxmox_acme_plugin_id: ""
+proxmox_acme_plugin_type: dns
+proxmox_acme_plugin_api: ""
+proxmox_acme_plugin_data: {}
+proxmox_acme_plugin_nodes: ""
+proxmox_acme_plugin_validation_delay: 30
+
+# Proxmox ACME account used when ordering certificates.
+proxmox_acme_account_name: default
+proxmox_acme_account_email: ""
+proxmox_acme_account_directory: https://acme-v02.api.letsencrypt.org/directory
+
+# DNS names to include in the node certificate.
+proxmox_acme_domains: []
+
+# Force replacement of an existing custom certificate when ordering.
+proxmox_acme_certificate_order_force: false
+
+# Existing plugin configuration is left unchanged unless explicitly enabled.
+proxmox_acme_plugin_reconfigure: true

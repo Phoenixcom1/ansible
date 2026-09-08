@@ -1,0 +1,257 @@
+---
+- name: Validate Proxmox ACME plugin configuration
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['os_family'] == 'Debian'
+      - proxmox_acme_plugin_id | length > 0
+      - proxmox_acme_plugin_type in ['dns', 'standalone']
+      - proxmox_acme_plugin_api | length > 0
+      - proxmox_acme_plugin_data is mapping
+      - proxmox_acme_plugin_validation_delay | int >= 0
+      - proxmox_acme_domains is sequence
+      - proxmox_acme_domains | length > 0
+      - proxmox_acme_domains | length <= 5
+      - proxmox_acme_domains | reject('match', '^https?://') | list | length == proxmox_acme_domains | length
+    fail_msg: >-
+      Set a valid Proxmox ACME plugin id, type, API, data mapping, and
+      non-negative validation delay. Proxmox supports at most five node ACME
+      domains.
+
+- name: Check that the Proxmox node CLI is available
+  ansible.builtin.command:
+    cmd: pvenode help
+  register: proxmox_acme_pvenode_command
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Require the Proxmox node CLI
+  ansible.builtin.assert:
+    that:
+      - proxmox_acme_pvenode_command.rc == 0
+    fail_msg: "pvenode was not found; run this role on a Proxmox VE host."
+
+- name: Validate ACME account configuration
+  ansible.builtin.assert:
+    that:
+      - proxmox_acme_account_name | length > 0
+      - proxmox_acme_account_email | length > 0
+      - proxmox_acme_account_directory is match('^https://')
+    fail_msg: >-
+      Set proxmox_acme_account_email and a valid HTTPS
+      proxmox_acme_account_directory before running this role.
+
+- name: Validate Proxmox ACME domains
+  ansible.builtin.assert:
+    that:
+      - item is not match('^\\*\\.')
+    fail_msg: >-
+      Proxmox VE native node ACME configuration does not support wildcard names
+      in acmedomainN. Use a concrete node hostname here, or issue the requested
+      wildcard certificate with a separate ACME client using DNS-01 and install
+      it separately.
+  loop: "{{ proxmox_acme_domains }}"
+
+- name: List configured Proxmox ACME accounts
+  ansible.builtin.command:
+    argv:
+      - pvenode
+      - acme
+      - account
+      - list
+  register: proxmox_acme_accounts
+  changed_when: false
+  become: true
+
+- name: Register the Proxmox ACME account
+  ansible.builtin.command:
+    argv:
+      - pvenode
+      - acme
+      - account
+      - register
+      - "{{ proxmox_acme_account_name }}"
+      - "{{ proxmox_acme_account_email }}"
+      - --directory
+      - "{{ proxmox_acme_account_directory }}"
+    stdin: "y"
+    stdin_add_newline: true
+  become: true
+  when: >-
+    proxmox_acme_account_name not in proxmox_acme_accounts.stdout
+
+- name: Check whether the ACME plugin exists
+  ansible.builtin.command:
+    argv:
+      - pvenode
+      - acme
+      - plugin
+      - config
+      - "{{ proxmox_acme_plugin_id }}"
+      - --output-format
+      - json
+  register: proxmox_acme_plugin_config
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Create temporary ACME plugin data file
+  ansible.builtin.tempfile:
+    state: file
+    prefix: proxmox-acme-plugin-
+  register: proxmox_acme_plugin_data_file
+  become: true
+  when:
+    - proxmox_acme_plugin_config.rc != 0 or proxmox_acme_plugin_reconfigure | bool
+
+- name: Write ACME plugin data
+  ansible.builtin.copy:
+    content: "{{ proxmox_acme_plugin_data | dictsort | map('join', '=') | join('\n') }}\n"
+    dest: "{{ proxmox_acme_plugin_data_file['path'] }}"
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  no_log: true
+  when:
+    - proxmox_acme_plugin_data_file is defined
+    - "'path' in proxmox_acme_plugin_data_file"
+
+- name: Add the Proxmox ACME plugin
+  ansible.builtin.command:
+    argv:
+      - pvenode
+      - acme
+      - plugin
+      - add
+      - "{{ proxmox_acme_plugin_type }}"
+      - "{{ proxmox_acme_plugin_id }}"
+      - --api
+      - "{{ proxmox_acme_plugin_api }}"
+      - --data
+      - "{{ proxmox_acme_plugin_data_file['path'] }}"
+      - --validation-delay
+      - "{{ proxmox_acme_plugin_validation_delay | string }}"
+  become: true
+  no_log: true
+  when:
+    - proxmox_acme_plugin_config.rc != 0
+    - proxmox_acme_plugin_nodes | length == 0
+
+- name: Add the Proxmox ACME plugin with cluster nodes
+  ansible.builtin.command:
+    argv:
+      - pvenode
+      - acme
+      - plugin
+      - add
+      - "{{ proxmox_acme_plugin_type }}"
+      - "{{ proxmox_acme_plugin_id }}"
+      - --api
+      - "{{ proxmox_acme_plugin_api }}"
+      - --data
+      - "{{ proxmox_acme_plugin_data_file['path'] }}"
+      - --validation-delay
+      - "{{ proxmox_acme_plugin_validation_delay | string }}"
+      - --nodes
+      - "{{ proxmox_acme_plugin_nodes }}"
+  become: true
+  no_log: true
+  when:
+    - proxmox_acme_plugin_config.rc != 0
+    - proxmox_acme_plugin_nodes | length > 0
+
+- name: Reconfigure the existing Proxmox ACME plugin
+  ansible.builtin.command:
+    argv:
+      - pvenode
+      - acme
+      - plugin
+      - set
+      - "{{ proxmox_acme_plugin_id }}"
+      - --api
+      - "{{ proxmox_acme_plugin_api }}"
+      - --data
+      - "{{ proxmox_acme_plugin_data_file['path'] }}"
+      - --validation-delay
+      - "{{ proxmox_acme_plugin_validation_delay | string }}"
+  become: true
+  no_log: true
+  when:
+    - proxmox_acme_plugin_config.rc == 0
+    - proxmox_acme_plugin_reconfigure | bool
+    - proxmox_acme_plugin_nodes | length == 0
+
+- name: Reconfigure the existing Proxmox ACME plugin with cluster nodes
+  ansible.builtin.command:
+    argv:
+      - pvenode
+      - acme
+      - plugin
+      - set
+      - "{{ proxmox_acme_plugin_id }}"
+      - --api
+      - "{{ proxmox_acme_plugin_api }}"
+      - --data
+      - "{{ proxmox_acme_plugin_data_file['path'] }}"
+      - --validation-delay
+      - "{{ proxmox_acme_plugin_validation_delay | string }}"
+      - --nodes
+      - "{{ proxmox_acme_plugin_nodes }}"
+  become: true
+  no_log: true
+  when:
+    - proxmox_acme_plugin_config.rc == 0
+    - proxmox_acme_plugin_reconfigure | bool
+    - proxmox_acme_plugin_nodes | length > 0
+
+- name: Read the current Proxmox ACME domain configuration
+  ansible.builtin.command:
+    argv:
+      - pvenode
+      - config
+      - get
+      - --property
+      - acmedomain0
+  register: proxmox_acme_domain_config
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Configure the Proxmox ACME domains
+  ansible.builtin.command:
+    argv:
+      - pvenode
+      - config
+      - set
+      - --acme
+      - "account={{ proxmox_acme_account_name }}"
+      - "--acmedomain{{ domain_index }}"
+      - "domain={{ domain_name }},plugin={{ proxmox_acme_plugin_id }}"
+  become: true
+  register: proxmox_acme_domain_set
+  when: >-
+    ('domain=' ~ domain_name) not in proxmox_acme_domain_config.stdout or
+    ('plugin=' ~ proxmox_acme_plugin_id) not in proxmox_acme_domain_config.stdout
+  loop: "{{ proxmox_acme_domains }}"
+  loop_control:
+    index_var: domain_index
+    loop_var: domain_name
+
+- name: Request or renew the Proxmox node certificate
+  ansible.builtin.command:
+    argv: >-
+      {{ ['pvenode', 'acme', 'cert', 'order'] +
+         (['--force', '1'] if proxmox_acme_certificate_order_force else []) }}
+  become: true
+  register: proxmox_acme_certificate_order
+  changed_when: true
+
+- name: Remove temporary ACME plugin data file
+  ansible.builtin.file:
+    path: "{{ proxmox_acme_plugin_data_file['path'] }}"
+    state: absent
+  become: true
+  when:
+    - proxmox_acme_plugin_data_file is defined
+    - "'path' in proxmox_acme_plugin_data_file"
