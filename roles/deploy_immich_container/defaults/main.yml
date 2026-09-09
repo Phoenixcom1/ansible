@@ -47,6 +47,15 @@ immich_network_driver: bridge
 # Immich application settings
 immich_domain: "immich.{{ customer_domain }}"
 immich_client_url: "https://{{ immich_domain }}"
+immich_acme_enabled: true
+immich_acme_email: "{{ podman_acme_client_email }}"
+immich_acme_server: letsencrypt_test
+immich_acme_dns_api: dns_hetznercloud
+immich_acme_dns_token: "{{ acme_dns_api_token }}"
+immich_ssl_dir: /etc/ssl/services
+immich_ssl_cert_dir: "{{ immich_ssl_dir }}/immich"
+immich_ssl_cert: "{{ immich_ssl_cert_dir }}/fullchain.pem"
+immich_ssl_key: "{{ immich_ssl_cert_dir }}/key.pem"
 immich_port: 2283
 immich_internal_port: 2283
 

@@ -82,6 +82,21 @@
     - immich_enable_hardware_acceleration | bool
     - immich_video_group_membership.changed or immich_render_group_membership.changed
 
+- name: Issue and install the Immich staging certificate
+  ansible.builtin.include_role:
+    name: setup_podman_acme_client
+  vars:
+    podman_acme_client_email: "{{ immich_acme_email }}"
+    podman_acme_client_server: "{{ immich_acme_server }}"
+    podman_acme_client_dns_api: "{{ immich_acme_dns_api }}"
+    podman_acme_client_dns_token: "{{ immich_acme_dns_token }}"
+    podman_acme_client_domain: "{{ immich_domain }}"
+    podman_acme_client_domains:
+      - "{{ immich_domain }}"
+    podman_acme_client_install_dir: "{{ immich_ssl_dir }}"
+    podman_acme_client_cert_dir: "{{ immich_ssl_cert_dir }}"
+  when: immich_acme_enabled | bool
+
 - name: Check for the configured GPU render device
   stat:
     path: "{{ immich_gpu_render_device }}"

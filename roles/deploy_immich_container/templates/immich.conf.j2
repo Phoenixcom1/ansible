@@ -9,8 +9,8 @@ server {
 
     server_name {{ immich_domain }};
 
-    ssl_certificate     {{ ssl_cert }};
-    ssl_certificate_key {{ ssl_key }};
+    ssl_certificate     {{ immich_ssl_cert }};
+    ssl_certificate_key {{ immich_ssl_key }};
 
     # Allow large file uploads (photos/videos)
     client_max_body_size {{ immich_max_upload_size }}M;
