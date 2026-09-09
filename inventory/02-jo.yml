@@ -1,8 +1,0 @@
-#We have to set both, static_ip and ansible_host as ansible_host will be overriden first time execution
-
-all:
-  children:
-    proxmox:
-      hosts:
-        proxmox-pve1:
-          ansible_host: 192.168.1.22
