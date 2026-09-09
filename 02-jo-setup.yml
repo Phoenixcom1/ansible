@@ -25,14 +25,19 @@
     #- truenas_nfs_provision
     #- truenas_nfs_client
     - nginx_reverse_proxy
-    - truenas_immich_smb_provision
+    - role: truenas_immich_smb_provision
+      when: not ansible_check_mode
     - role: truenas_dataset_provision
-      when: truenas_datasets | default([]) | length > 0
+      when:
+        - not ansible_check_mode
+        - truenas_datasets | default([]) | length > 0
     #- role: truenas_rsync_destination
     #  when: truenas_rsync_destinations | default([]) | length > 0
-    - truenas_system_config
+    - role: truenas_system_config
+      when: not ansible_check_mode
     #- truenas_cloud_sync
-    - deploy_immich_container
+    - role: deploy_immich_container
+      when: not ansible_check_mode
     #- deploy_vaultwarden_container
     #- deploy_paperless_container
     #- role: paperless-snapshot-backup

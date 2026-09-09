@@ -132,6 +132,9 @@
     enabled: yes
     state: started
   become: true
+  # In check mode the package install is simulated, so nginx.service may not
+  # exist yet and systemd cannot inspect or start it.
+  when: not ansible_check_mode
 
 - name: Enable SELinux booleans for reverse proxy network access (RedHat family)
   ansible.builtin.seboolean:
@@ -156,7 +159,9 @@
     name: firewalld
     enabled: yes
     state: started
-  when: ansible_facts['os_family'] == 'RedHat'
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - not ansible_check_mode
   become: true
 
 - name: Check whether HTTP and HTTPS services are already open in firewalld (RedHat family)
@@ -168,7 +173,9 @@
   loop:
     - http
     - https
-  when: ansible_facts['os_family'] == 'RedHat'
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - not ansible_check_mode
   become: true
 
 - name: Open HTTP and HTTPS in firewalld (RedHat family)
@@ -177,11 +184,14 @@
   loop: "{{ nginx_firewall_service_checks.results }}"
   when:
     - ansible_facts['os_family'] == 'RedHat'
+    - not ansible_check_mode
     - item.rc != 0
   become: true
 
 - name: Reload firewalld to apply permanent rules (RedHat family)
   ansible.builtin.command:
     cmd: firewall-cmd --reload
-  when: ansible_facts['os_family'] == 'RedHat'
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - not ansible_check_mode
   become: true

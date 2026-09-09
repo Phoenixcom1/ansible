@@ -1,0 +1,102 @@
+# Service, storage, and backup configuration for podman-vm.
+
+customer_url: "jo.fassbender.contact"
+ssl_cert: "/etc/ssl/wildcard/jo.fassbender.contact/fullchain.pem"
+ssl_key: "/etc/ssl/wildcard/jo.fassbender.contact/key.pem"
+podman_acme_client_email: "enno-fassbender@web.de"
+podman_acme_client_domain: "jo.fassbender.contact"
+podman_acme_client_dns_token: "{{ acme_dns_api_token }}"
+paperless_enable_media_mount: true
+paperless_snapshot_enabled: true
+paperless_media_mount_source: "//truenas.{{ customer_domain }}/paperless-media"
+paperless_media_smb_username: "{{ truenas_paperless_smb_username }}"
+paperless_media_smb_password: "{{ truenas_paperless_smb_password }}"
+
+# Store the API token in the ignored companion inventory or provide
+# TRUENAS_API_TOKEN.
+truenas_nfs_server: "truenas.{{ customer_domain }}"
+truenas_nfs_mounts:
+  - dataset: "tank/apps/nextcloud-data"
+    export_path: "/mnt/tank/apps/nextcloud-data"
+    path: "/srv/containers/nextcloud-data"
+    encrypted: true
+truenas_datasets:
+  - name: photos
+    dataset: "tank/photos"
+    export_path: "/mnt/tank/photos"
+    encrypted: true
+    group: photos-access
+    users:
+      - username: "{{ truenas_immich_smb_username }}"
+        password: "{{ truenas_immich_smb_password }}"
+        full_name: "Immich account"
+    snapshot_retention:
+      daily: 14
+      weekly: 8
+      monthly: 12
+    replication: true
+  - name: paperless-media
+    dataset: "tank/apps/paperless-media"
+    export_path: "/mnt/tank/apps/paperless-media"
+    share_name: "paperless-media"
+    encrypted: true
+    group: paperless-media
+    permission_user: "{{ truenas_paperless_smb_username }}"
+    users:
+      - username: "{{ truenas_paperless_smb_username }}"
+        password: "{{ truenas_paperless_smb_password }}"
+        full_name: "Paperless media account"
+    snapshot_retention:
+      hourly: 24
+      daily: 14
+      weekly: 8
+      monthly: 12
+  - name: proxmox-vm-backups
+    dataset: "tank/backups/proxmox-vm-backups"
+    export_path: "/mnt/tank/backups/proxmox-vm-backups"
+    share_name: "proxmox-vm-backups"
+    encrypted: true
+    group: proxmox-vm-backups
+    users:
+      - username: "proxmox-vm-backup"
+        password: "{{ truenas_proxmox_vm_backup_account_password }}"
+        full_name: "Proxmox VM backup account"
+    # Restrict SMB access to the Proxmox hosts at the TrueNAS or network
+    # firewall: 192.168.1.20 and 192.168.1.11.
+truenas_system_config_enabled: true
+restic_backup_enabled_services:
+  - vaultwarden
+  - immich
+  - paperless
+restic_service_overrides:
+  immich:
+    destinations:
+      - rest-offsite
+    paths:
+      - "{{ immich_upload_dir | default('/srv/containers/immich-data') }}"
+      - "{{ podman_service_dir }}/immich/postgres"
+      - "{{ podman_service_dir }}/immich/immich.env"
+  paperless:
+    stop_before_backup: true
+    systemd_user_unit: paperless-stack.target
+    systemd_user: "{{ podman_username }}"
+    destinations:
+      - rest-offsite
+    paths:
+      - "{{ podman_service_dir }}/paperless/data"
+      - "{{ podman_service_dir }}/paperless/media"
+      - "{{ podman_service_dir }}/paperless/export"
+      - "{{ podman_service_dir }}/paperless/scripts"
+      - "{{ podman_service_dir }}/paperless/custom-cont-init.d"
+      - "{{ podman_service_dir }}/paperless/paperless.env"
+    excludes:
+      - "*/redisdata/*"
+      - "*/consume/*"
+      - "*/thumbnails/*"
+      - "*.log"
+truenas_replication_enabled: true
+truenas_replication_destination_api_url: "https://192.168.1.252"
+truenas_replication_destination_api_validate_certs: false
+truenas_replication_destination_dataset: "tank/Truenas_Backup_Jo"
+# The destination account identifies this source host to the remote NAS.
+truenas_replication_remote_username: "truenas-repl-Jo"
