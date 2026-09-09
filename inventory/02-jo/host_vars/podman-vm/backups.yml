@@ -1,0 +1,38 @@
+# Backup and replication configuration for podman-vm.
+
+restic_backup_enabled_services:
+  - vaultwarden
+  - immich
+  - paperless
+restic_service_overrides:
+  immich:
+    destinations:
+      - rest-offsite
+    paths:
+      - "{{ immich_upload_dir | default('/srv/containers/immich-data') }}"
+      - "{{ podman_service_dir }}/immich/postgres"
+      - "{{ podman_service_dir }}/immich/immich.env"
+  paperless:
+    stop_before_backup: true
+    systemd_user_unit: paperless-stack.target
+    systemd_user: "{{ podman_username }}"
+    destinations:
+      - rest-offsite
+    paths:
+      - "{{ podman_service_dir }}/paperless/data"
+      - "{{ podman_service_dir }}/paperless/media"
+      - "{{ podman_service_dir }}/paperless/export"
+      - "{{ podman_service_dir }}/paperless/scripts"
+      - "{{ podman_service_dir }}/paperless/custom-cont-init.d"
+      - "{{ podman_service_dir }}/paperless/paperless.env"
+    excludes:
+      - "*/redisdata/*"
+      - "*/consume/*"
+      - "*/thumbnails/*"
+      - "*.log"
+truenas_replication_enabled: true
+truenas_replication_destination_api_url: "https://192.168.1.252"
+truenas_replication_destination_api_validate_certs: false
+truenas_replication_destination_dataset: "tank/Truenas_Backup_Jo"
+# The destination account identifies this source host to the remote NAS.
+truenas_replication_remote_username: "truenas-repl-Jo"

@@ -1,0 +1,13 @@
+# Service and certificate configuration for podman-vm.
+
+customer_url: "jo.fassbender.contact"
+ssl_cert: "/etc/ssl/wildcard/jo.fassbender.contact/fullchain.pem"
+ssl_key: "/etc/ssl/wildcard/jo.fassbender.contact/key.pem"
+podman_acme_client_email: "enno-fassbender@web.de"
+podman_acme_client_domain: "jo.fassbender.contact"
+podman_acme_client_dns_token: "{{ acme_dns_api_token }}"
+paperless_enable_media_mount: true
+paperless_snapshot_enabled: true
+paperless_media_mount_source: "//truenas.{{ customer_domain }}/paperless-media"
+paperless_media_smb_username: "{{ truenas_paperless_smb_username }}"
+paperless_media_smb_password: "{{ truenas_paperless_smb_password }}"
