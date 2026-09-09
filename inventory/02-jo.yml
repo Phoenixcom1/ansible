@@ -6,23 +6,3 @@ all:
       hosts:
         proxmox-pve1:
           ansible_host: 192.168.1.22
-          customer_url: "jo.fassbender.contact"
-      vars:
-        customer_url: "jo.fassbender.contact"
-        proxmox_acme_plugin_id: hetzner
-        proxmox_acme_plugin_type: dns
-        proxmox_acme_plugin_api: hetznercloud
-        proxmox_acme_plugin_data:
-          HETZNER_TOKEN: "{{ acme_dns_api_token }}"
-        proxmox_acme_domains:
-          - "pve.{{ customer_url }}"
-        # Use a separate production account after staging validation succeeds.
-        proxmox_acme_account_name: production
-        proxmox_acme_account_directory: https://acme-v02.api.letsencrypt.org/directory
-        proxmox_acme_account_email: "enno.fassbender@gmx.de"
-        # Replace the existing staging certificate with the production one.
-        proxmox_acme_certificate_order_force: false
-  vars:
-    ansible_user: ansible
-    gateway_lab: 192.168.1.1
-    ansible_private_key_file: ~/.ssh/id_ed25519_priv
