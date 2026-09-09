@@ -2,3 +2,4 @@
 .vscode
 .idea
 inventory/*.secrets.yml
+inventory/*/group_vars/all/secrets.yml
