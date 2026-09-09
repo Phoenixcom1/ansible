@@ -13,7 +13,6 @@
 #     private: true
 #     confirm: true
 - hosts: podman-vm
-
   roles:
     - platform_facts
     - common
