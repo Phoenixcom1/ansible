@@ -52,10 +52,10 @@
       - "{{ podman_acme_client_dns_api }}"
       - --dnssleep
       - "{{ podman_acme_client_dnssleep | string }}"
+      {% for domain in podman_acme_client_domains %}
       - -d
-      - "{{ podman_acme_client_domain }}"
-      - -d
-      - "*.{{ podman_acme_client_domain }}"
+      - "{{ domain }}"
+      {% endfor %}
   environment:
     HETZNER_TOKEN: "{{ podman_acme_client_dns_token }}"
   become: true
